@@ -1,28 +1,31 @@
 /* ====== Design tokens ====== */
 :root{
-  --bg:#fff;
-  --text:#111;
-  --muted:#666;
-  --card:#fff;
-  --border:#e6e8ec;
-  --primary:#111;
-  --primary-contrast:#fff;
-  --ring:#3b82f633;
+  --bg:#fefcfb;
+  --text:#1f2023;
+  --muted:#6a6d75;
+  --card:#ffffff;
+  --border:#e7e5e4;
+  --primary:#3fb8af;           /* turquoise */
+  --primary-contrast:#ffffff;
+  --ring:#f78da733;            /* corail clair */
   --shadow:0 8px 24px rgba(0,0,0,.06);
 }
 @media (prefers-color-scheme: dark){
   :root{
-    --bg:#0b0c0f;
-    --text:#f1f5f9;
-    --muted:#9aa4b2;
-    --card:#12141a;
-    --border:#232634;
-    --primary:#e2e8f0;
-    --primary-contrast:#0b0c0f;
-    --ring:#60a5fa33;
+    --bg:#121212;
+    --text:#e5e5e5;
+    --muted:#9d9d9d;
+    --card:#1b1b1b;
+    --border:#2a2a2a;
+    --primary:#50e3c2;
+    --primary-contrast:#121212;
+    --ring:#ff9ebc33;
     --shadow:0 10px 30px rgba(0,0,0,.45);
   }
 }
+
+
+
 
 /* ====== Base ====== */
 *{box-sizing:border-box}
