@@ -1,0 +1,95 @@
+/* ===== Page d'accueil (index) ===== */
+.index-wrapper {
+  animation: fadeIn .5s ease;
+}
+
+/* --- Bloc Upload --- */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 95%, #888 5%);
+  padding: 40px 20px;
+  text-align: center;
+  transition: border-color .25s ease, background .25s ease;
+  cursor: pointer;
+}
+
+.upload-zone:hover {
+  border-color: #60a5fa;
+  background: color-mix(in srgb, var(--card) 92%, #60a5fa 8%);
+}
+
+.upload-zone.dragover {
+  border-color: #2563eb;
+  background: color-mix(in srgb, var(--card) 90%, #2563eb 10%);
+}
+
+.upload-zone input[type="file"] {
+  display: none;
+}
+
+.upload-icon {
+  font-size: 3rem;
+  color: var(--muted);
+  margin-bottom: 10px;
+  display: block;
+}
+
+/* --- Formulaire recherche --- */
+.search-section form {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.search-section input[type="text"] {
+  flex: 1;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  transition: box-shadow .2s ease, border-color .2s ease;
+}
+
+.search-section input[type="text"]:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 4px var(--ring);
+}
+
+.search-section button {
+  padding: 12px 18px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--primary-contrast);
+  cursor: pointer;
+  transition: transform .1s ease, opacity .2s ease;
+}
+.search-section button:hover {
+  opacity: .9;
+}
+.search-section button:active {
+  transform: translateY(1px);
+}
+
+/* --- Info texte --- */
+.card .muted {
+  margin-top: 6px;
+  font-size: .9rem;
+  display: block;
+}
+
+/* --- Petites animations --- */
+@keyframes fadeIn {
+  from {opacity: 0; transform: translateY(10px);}
+  to {opacity: 1; transform: translateY(0);}
+}
+
+/* --- Responsive --- */
+@media (max-width: 640px){
+  .upload-zone{padding:28px 14px}
+  .search-section form{flex-direction:column}
+  .search-section button{width:100%}
+}

@@ -11,7 +11,12 @@ DATA_DIR = BASE_DIR / "data"
 DB_DIR = BASE_DIR / "db"
 DB_PATH = DB_DIR / "index.db"
 
-app = Flask(__name__)
+app = Flask(
+            __name__,
+            template_folder=str(BASE_DIR / "templates"),
+             static_folder=str(BASE_DIR / "static"),
+                static_url_path="/static"   # URL = /static/...
+                )
 app.secret_key = "change-me"
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(DB_DIR, exist_ok=True)

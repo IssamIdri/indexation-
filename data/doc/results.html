@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h3>Résultats pour : “{{ q }}”</h3>
+  {% if not results %}
+    <p>Aucun résultat.</p>
+  {% else %}
+    <ul>
+      {% for r in results %}
+        <li style="margin-bottom:12px">
+          <strong>{{ r.name }}</strong>
+          <span class="muted">— score {{ r.score }} — {{ r.rel_path }}</span><br>
+          <span>{{ r.snippet }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <p><a href="{{ url_for('index') }}">← Nouvelle recherche / Upload</a></p>
+</div>
+{% endblock %}

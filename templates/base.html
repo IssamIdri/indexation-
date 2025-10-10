@@ -4,19 +4,11 @@
   <meta charset="utf-8">
   <title>Indexation Lite</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <style>
-    body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:24px;max-width:900px}
-    header{margin-bottom:16px}
-    .card{border:1px solid #ddd;border-radius:10px;padding:16px;margin:12px 0}
-    .row{display:flex;gap:16px;flex-wrap:wrap}
-    .grow{flex:1}
-    input[type="text"]{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px}
-    button{padding:10px 14px;border:0;border-radius:8px;background:#111;color:#fff;cursor:pointer}
-    .muted{color:#666}
-    code{background:#f6f6f6;padding:2px 6px;border-radius:6px}
-  </style>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
 </head>
 <body>
+    <div class="container">
 <header>
   <h1>Indexation Lite</h1>
   <p class="muted">Upload un <code>.zip</code> de documents → indexation → recherche plein texte (sans stop-words).</p>
@@ -31,5 +23,6 @@
 <main>
   {% block content %}{% endblock %}
 </main>
+</div>
 </body>
 </html>
