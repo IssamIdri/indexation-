@@ -16,6 +16,28 @@
     </form>
     <p class="muted">Le ZIP peut contenir des sous-dossiers. Formats pris : .txt, .html, .docx, .pdf</p>
   </div>
+  {% if summaries %}
+<div class="card">
+  <h3>Top mots par document </h3>
+  <div class="table-wrap">
+    <table class="result-table">
+      <thead><tr><th>Document</th><th>Top mots × fréquences</th></tr></thead>
+      <tbody>
+        {% for s in summaries %}
+        <tr>
+          <td>{{ s.name }}</td>
+          <td>
+            {% for w,f in s.top %}
+              <span class="chip">{{ w }} × {{ f }}</span>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
   <div class="card search-section">
     <h3>Rechercher</h3>

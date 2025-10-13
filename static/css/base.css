@@ -24,6 +24,18 @@
   }
 }
 
+.table-wrap{overflow:auto}
+.result-table{
+  width:100%; border-collapse:collapse; font-size:.95rem
+}
+.result-table th, .result-table td{
+  border-bottom:1px solid var(--border); padding:10px 8px; text-align:left; vertical-align:top
+}
+.result-table th{color:var(--muted); font-weight:600}
+.chip{
+  display:inline-block; margin:3px 6px 3px 0; padding:4px 8px;
+  border:1px solid var(--border); border-radius:999px; background:var(--card)
+}
 
 
 

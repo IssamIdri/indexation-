@@ -1,7 +1,7 @@
 import os, re, sqlite3, zipfile, shutil
 from pathlib import Path
 from collections import Counter, defaultdict
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, session
 from bs4 import BeautifulSoup
 from docx import Document as DocxDocument
 from pdfminer.high_level import extract_text as pdf_extract_text
@@ -21,7 +21,7 @@ app.secret_key = "change-me"
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(DB_DIR, exist_ok=True)
 
-# --- Stopwords FR/EN (compactes, extensibles) ---
+# --- Stopwords FR (compactes, extensibles) ---
 STOP_WORDS = set("""
 a ai ais ait ainsi alors an ans au aux avec assez avoir avant car ce ces cet cette ceux chaque chez ci comme comment d dans de des du donc dos
 elle elles en encore entre est et etaient etais etait etant ete etre eux fait fois font hors il ils je la le les leur leurs loin lui me meme memes
@@ -62,11 +62,11 @@ def init_db():
 
 init_db()
 
-# ---------- Utils ----------
+# ---------- Normalisation ----------
 def normalize_text(text: str) -> list[str]:
     # lower + tokenize + remove stopwords + keep words len>=2
     tokens = [w.lower() for w in WORD_RE.findall(text)]
-    return [w for w in tokens if w not in STOP_WORDS and len(w) >= 2]
+    return [w for w in tokens if w not in STOP_WORDS and len(w) >2]
 
 def extract_text_from_file(path: Path) -> str:
     ext = path.suffix.lower()
@@ -87,7 +87,7 @@ def extract_text_from_file(path: Path) -> str:
     except Exception as e:
         print(f"[WARN] Failed to extract {path}: {e}")
         return ""
-
+# ---------INDEXATION -------------
 def index_document(file_path: Path, rel_root: Path):
     text = extract_text_from_file(file_path)
     tokens = normalize_text(text)
@@ -106,7 +106,10 @@ def index_document(file_path: Path, rel_root: Path):
                     [(doc_id, w, int(c)) for w, c in freqs.items()])
     con.commit()
     con.close()
-    return doc_id
+
+    # retourne le Top-5 pour affichage
+    top5 = freqs.most_common(5)
+    return {"name": file_path.name, "rel_path": rel_path, "top": top5}
 
 def clear_index():
     con = db_conn()
@@ -117,6 +120,7 @@ def clear_index():
     con.close()
 
 def build_snippet(full_text: str, query_word: str, width: int = 120) -> str:
+    
     # simple snippet autour de la 1re occurrence
     i = full_text.lower().find(query_word.lower())
     if i == -1:
@@ -129,14 +133,12 @@ def build_snippet(full_text: str, query_word: str, width: int = 120) -> str:
 # ---------- Routes ----------
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html")
-
+    summaries = session.pop('last_summary', [])
+    return render_template("index.html", summaries=summaries)
+#UPLOAD
 @app.route("/upload", methods=["POST"])
 def upload_zip():
-    """
-    On attend un .zip contenant des fichiers .txt, .html, .docx, .pdf.
-    On écrase l'index précédent pour rester simple.
-    """
+
     f = request.files.get("zipfile")
     if not f or f.filename == "":
         flash("Aucun fichier .zip sélectionné")
@@ -151,24 +153,28 @@ def upload_zip():
     os.makedirs(DATA_DIR, exist_ok=True)
     clear_index()
 
+    # sauvegarder puis EXTRAIRE d'abord
     zip_path = DATA_DIR / "upload.zip"
     f.save(str(zip_path))
-
-    # extraire
     with zipfile.ZipFile(zip_path, "r") as z:
         z.extractall(DATA_DIR)
     zip_path.unlink(missing_ok=True)
 
-    # parcourir récursif
+    # indexer et REMPLIR summaries UNE SEULE FOIS
+    summaries = []
     indexed = 0
     for p in DATA_DIR.rglob("*"):
         if p.is_file() and p.suffix.lower() in {".txt", ".htm", ".html", ".docx", ".pdf"}:
-            if index_document(p, DATA_DIR):
+            res = index_document(p, DATA_DIR)  # doit retourner {"name", "rel_path", "top":[(mot, freq),...]}
+            if res:
+                summaries.append(res)
                 indexed += 1
 
+    # stocker le résumé pour affichage unique 
+    session['last_summary'] = summaries
     flash(f"Indexation terminée : {indexed} fichiers indexés.")
     return redirect(url_for("index"))
-
+#RECHERCHE
 @app.route("/search", methods=["GET"])
 def search():
     q = request.args.get("q", "").strip()
