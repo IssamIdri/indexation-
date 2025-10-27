@@ -5,6 +5,20 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 from bs4 import BeautifulSoup
 from docx import Document as DocxDocument
 from pdfminer.high_level import extract_text as pdf_extract_text
+from io import BytesIO
+from flask import send_file
+from wordcloud import WordCloud
+import spacy
+
+# charger les modèles une fois
+try:
+    NLP_FR = spacy.load("fr_core_news_sm")
+except OSError:
+    NLP_FR = None
+try:
+    NLP_EN = spacy.load("en_core_web_sm")
+except OSError:
+    NLP_EN = None
 
 BASE_DIR = Path(__file__).parent.resolve()
 DATA_DIR = BASE_DIR / "data"
@@ -60,14 +74,48 @@ def init_db():
     con.commit()
     con.close()
 
-init_db()
+init_db()# ---------- Lemmatisation ----------
+def guess_lang(text: str) -> str:
+    """Heuristique très simple FR/EN selon stop-words et caractères ; suffisant ici."""
+    if not text:
+        return "fr"
+    sample = text[:10000].lower()
+    fr_hits = sum(w in sample for w in (" le ", " la ", " les ", " des ", " un ", " une ", " et ", " que "))
+    en_hits = sum(w in sample for w in (" the ", " and ", " of ", " to ", " in ", " with ", " for ", " is "))
+    return "fr" if fr_hits >= en_hits else "en"
+
+def lemmatize_tokens(tokens: list[str], lang_hint: str) -> list[str]:
+    """Lemmatisation FR/EN ; si modèle manquant, retourne les tokens d'origine."""
+    lemmas = []
+    # on prépare une phrase simple pour éviter les overheads
+    sent = " ".join(tokens)
+    if lang_hint == "fr" and NLP_FR is not None:
+        doc = NLP_FR(sent)
+        lemmas = [t.lemma_.lower() for t in doc]
+    elif lang_hint == "en" and NLP_EN is not None:
+        doc = NLP_EN(sent)
+        lemmas = [t.lemma_.lower() for t in doc]
+    else:
+        # fallback : sans lemmatiseur
+        lemmas = [t.lower() for t in tokens]
+    return lemmas
 
 # ---------- Normalisation ----------
 def normalize_text(text: str) -> list[str]:
-    # lower + tokenize + remove stopwords + keep words len>=2
-    tokens = [w.lower() for w in WORD_RE.findall(text)]
-    return [w for w in tokens if w not in STOP_WORDS and len(w) >2]
+    # 1) tokenisation "mots alphabetiques"
+    raw = [w.lower() for w in WORD_RE.findall(text)]
+    if not raw:
+        return []
 
+    # 2) lemmatisation (FR/EN) -> infinitif pour les verbes
+    lang = guess_lang(text)
+    lemmas = lemmatize_tokens(raw, lang)
+
+    # 3) filtre stopwords + longueur >= 2
+    final = [w for w in lemmas if w not in STOP_WORDS and len(w) >= 2]
+    return final
+
+# ---------- Extraction texte ----------
 def extract_text_from_file(path: Path) -> str:
     ext = path.suffix.lower()
     try:
@@ -174,6 +222,62 @@ def upload_zip():
     session['last_summary'] = summaries
     flash(f"Indexation terminée : {indexed} fichiers indexés.")
     return redirect(url_for("index"))
+
+
+@app.route("/index-path", methods=["POST"])
+def index_path():
+    folder = request.form.get("folder_path", "").strip()
+    if not folder:
+        flash("Chemin vide.")
+        return redirect(url_for("index"))
+
+    root = Path(folder)
+    if not root.exists() or not root.is_dir():
+        flash("Dossier introuvable. Vérifie le chemin.")
+        return redirect(url_for("index"))
+
+    # reset data/ et index
+    if DATA_DIR.exists():
+        shutil.rmtree(DATA_DIR)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    clear_index()
+
+    # copie "logique" : on ne copie pas, on indexe directement le dossier fourni
+    summaries, indexed = [], 0
+    for p in root.rglob("*"):
+        if p.is_file() and p.suffix.lower() in {".txt", ".htm", ".html", ".docx", ".pdf"}:
+            try:
+                # pour garder des chemins relatifs dans la DB, on fait comme si root = DATA_DIR
+                # on calcule un chemin "virtuel" relatif pour l'affichage
+                res = index_document(p, root)
+                if res:
+                    summaries.append(res)
+                    indexed += 1
+            except Exception as e:
+                print(f"[WARN] {p}: {e}")
+
+    session['last_summary'] = summaries
+    flash(f"Indexation terminée : {indexed} fichiers indexés.")
+    return redirect(url_for("index"))
+        #WORDCLOUD
+@app.route("/wordcloud/<int:doc_id>.png")
+def wordcloud_doc(doc_id: int):
+    con = db_conn(); cur = con.cursor()
+    cur.execute("SELECT word, freq FROM frequencies WHERE doc_id = ?", (doc_id,))
+    pairs = cur.fetchall()
+    con.close()
+    if not pairs:
+        # image vide "placeholder"
+        img = WordCloud(width=800, height=400, background_color="white").generate("vide")
+    else:
+        freqs = {w: int(f) for (w, f) in pairs}
+        img = WordCloud(width=900, height=450, background_color="white", prefer_horizontal=0.95)\
+              .generate_from_frequencies(freqs)
+    buf = BytesIO()
+    img.to_image().save(buf, format="PNG")
+    buf.seek(0)
+    return send_file(buf, mimetype="image/png")
+
 #RECHERCHE
 @app.route("/search", methods=["GET"])
 def search():
@@ -203,15 +307,16 @@ def search():
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:50]
     results = []
     for doc_id, score in ranked:
-        cur.execute("SELECT name, rel_path FROM documents WHERE id = ?", (doc_id,))
+        cur.execute("SELECT id, name, rel_path FROM documents WHERE id = ?", (doc_id,))
         row = cur.fetchone()
         if not row:
             continue
-        name, rel_path = row
+        doc_id, name, rel_path = row
         full_path = DATA_DIR / rel_path
         raw = extract_text_from_file(full_path)
         snippet = build_snippet(raw, terms[0])
         results.append({
+            "id" : int(doc_id),
             "name": name,
             "rel_path": rel_path,
             "score": int(score),

@@ -37,6 +37,7 @@
   border:1px solid var(--border); border-radius:999px; background:var(--card)
 }
 
+mark{ background:#fde04766; font-weight:700; border-radius:4px; padding:0 .15em; }
 
 
 /* ====== Base ====== */

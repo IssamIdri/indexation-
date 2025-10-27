@@ -7,15 +7,46 @@
     <p>Aucun résultat.</p>
   {% else %}
     <ul class="results-list">
-      {% for r in results %}
-        <li>
-          <strong>{{ r.name }}</strong>
-          <span class="result-meta">— score {{ r.score }} — {{ r.rel_path }}</span><br>
-          <span class="result-snippet">{{ r.snippet | safe }}</span>
-        </li>
-      {% endfor %}
-    </ul>
+  {% for r in results %}
+    <li>
+      <strong>{{ r.name }}</strong>
+      <span class="result-meta">— score {{ r.score }} — {{ r.rel_path }}</span><br>
+      <span class="result-snippet">{{ r.snippet | safe }}</span><br>
+
+      <button class="btn-cloud" data-doc="{{ r.id if r.id else loop.index }}">
+        Nuage de mots
+      </button>
+    </li>
+  {% endfor %}
+  </ul>
+<!-- Modal -->
+<div id="wc-modal" class="wc-modal hidden">
+  <div class="wc-dialog">
+    <button id="wc-close" class="wc-close" aria-label="Fermer">✕</button>
+    <img id="wc-img" alt="Wordcloud" />
+  </div>
+</div>
   {% endif %}
   <a href="{{ url_for('index') }}">← Nouvelle recherche / Upload</a>
 </div>
 {% endblock %}
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const modal = document.getElementById('wc-modal');
+  const img = document.getElementById('wc-img');
+  const closer = document.getElementById('wc-close');
+
+  document.querySelectorAll('.btn-cloud').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const docId = btn.getAttribute('data-doc');
+      img.src = `/wordcloud/${docId}.png?ts=${Date.now()}`;
+      modal.classList.remove('hidden');
+    });
+  });
+  closer.addEventListener('click', () => modal.classList.add('hidden'));
+  modal.addEventListener('click', (e) => {
+    if(e.target === modal) modal.classList.add('hidden');
+  });
+});
+</script>
