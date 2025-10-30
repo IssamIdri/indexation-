@@ -1,19 +1,21 @@
 {% extends "base.html" %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='/css/index.css') }}?v=1">
-<div class="index-wrapper">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
 
-  <div class="card">
-  <h3> Indexer un dossier local</h3>
-  <form action="{{ url_for('index_path') }}" method="post">
-    <input type="text" name="folder_path" placeholder="Ex: C:\Users\ISSAM\Documents\mon_dossier" required>
-    <button type="submit">Indexer</button>
-  </form>
-  <p class="muted">L’indexation parcourt récursivement .txt, .html, .docx, .pdf et ignore les autres.</p>
-</div>
-  {% if summaries %}
 <div class="card">
-  <h3>Top mots par document </h3>
+  <h3>Indexer un dossier local</h3>
+  <form action="{{ url_for('index_path') }}" method="post" class="row">
+    <div class="grow">
+      <input type="text" name="folder_path" placeholder="Ex: C:\Users\ISSAM\Documents\mon_dossier" required>
+    </div>
+    <div><button type="submit">Indexer</button></div>
+  </form>
+  <span class="muted small">Formats pris : .txt, .html, .docx, .pdf (parcours récursif).</span>
+</div>
+
+{% if summaries %}
+<div class="card">
+  <h3>Top mots par document (Top-5)</h3>
   <div class="table-wrap">
     <table class="result-table">
       <thead><tr><th>Document</th><th>Top mots × fréquences</th></tr></thead>
@@ -31,18 +33,7 @@
       </tbody>
     </table>
   </div>
+  <p class="muted small">Ces stats sont calculées côté back après lemmatisation et filtrage (mots &lt; 2 caractères supprimés).</p>
 </div>
 {% endif %}
-
-  <div class="card search-section">
-    <h3>Rechercher</h3>
-    <form action="{{ url_for('search') }}" method="get">
-      <input type="text" name="q" placeholder="mots-clés…">
-      <button type="submit">Chercher</button>
-    </form>
-    <p class="muted">Scores = somme des fréquences des mots dans chaque document.</p>
-  </div>
-
-</div>
-
 {% endblock %}

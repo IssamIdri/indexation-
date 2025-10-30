@@ -112,3 +112,53 @@ button:disabled{opacity:.55;cursor:not-allowed}
   .card{padding:14px}
   button{width:100%}
 }
+.app-header {
+display: flex;
+justify-content: space-between;
+align-items: center;
+padding: 14px 28px;
+background: var(--card);
+border-bottom: 2px solid var(--border);
+box-shadow: var(--shadow);
+}
+
+
+.logo-area {
+display: flex;
+align-items: center;
+gap: 14px;
+}
+
+
+.logo {
+width: 56px;
+height: 56px;
+border-radius: 12px;
+}
+
+
+.title {
+font-size: 1.4rem;
+font-weight: 700;
+color: var(--text);
+}
+
+
+.title span {
+font-weight: 400;
+color: var(--muted);
+}
+
+
+.top-nav a {
+margin-left: 18px;
+text-decoration: none;
+color: var(--primary);
+font-weight: 600;
+transition: color 0.2s ease;
+}
+
+
+.top-nav a:hover {
+color: #27b7a4;
+}

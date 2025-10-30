@@ -1,5 +1,7 @@
-import os, re, sqlite3, zipfile, shutil
+import os, re, sqlite3, shutil
 from pathlib import Path
+import mimetypes
+from flask import send_file, abort
 from collections import Counter, defaultdict
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from bs4 import BeautifulSoup
@@ -7,8 +9,15 @@ from docx import Document as DocxDocument
 from pdfminer.high_level import extract_text as pdf_extract_text
 from io import BytesIO
 from flask import send_file
+from pygments import highlight
 from wordcloud import WordCloud
 import spacy
+from collections import defaultdict
+import math
+from pygments import highlight as pyg_highlight
+from pygments.lexers import TextLexer
+from pygments.formatters import HtmlFormatter
+import html, re
 
 # charger les modèles une fois
 try:
@@ -112,7 +121,7 @@ def normalize_text(text: str) -> list[str]:
     lemmas = lemmatize_tokens(raw, lang)
 
     # 3) filtre stopwords + longueur >= 2
-    final = [w for w in lemmas if w not in STOP_WORDS and len(w) >= 2]
+    final = [w for w in lemmas if w not in STOP_WORDS and len(w) > 2]
     return final
 
 # ---------- Extraction texte ----------
@@ -167,69 +176,77 @@ def clear_index():
     con.commit()
     con.close()
 
-def build_snippet(full_text: str, query_word: str, width: int = 120) -> str:
-    
-    # simple snippet autour de la 1re occurrence
-    i = full_text.lower().find(query_word.lower())
-    if i == -1:
-        return full_text[:width] + ("..." if len(full_text) > width else "")
-    start = max(0, i - width//2)
-    end = min(len(full_text), i + width//2)
-    snippet = full_text[start:end].replace("\n", " ")
-    return ("..." if start > 0 else "") + snippet + ("..." if end < len(full_text) else "")
+def build_snippet(full_text: str, terms: list[str], width: int = 400) -> str:
+    """
+    Retourne le 1er paragraphe (ou phrase) qui contient au moins un des termes (insensible à la casse).
+    Fallback: début du texte si rien trouvé.
+    """
+    if not full_text:
+        return ""
+    if not terms:
+        return " ".join(full_text.split())[:width] + ("…" if len(full_text) > width else "")
 
+    lower_terms = [t.lower() for t in terms if t]
+    # 1) paragraphes (séparation par lignes vides)
+    paras = re.split(r'\r?\n{2,}', full_text.strip())
+    def has_any(s: str) -> bool:
+        s_low = s.lower()
+        return any(t in s_low for t in lower_terms)
+
+    for p in paras:
+        if has_any(p):
+            clip = " ".join(p.split())
+            return clip[:width] + ("…" if len(clip) > width else "")
+    # 2) phrases
+    sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
+    for s in sentences:
+        if has_any(s):
+            clip = " ".join(s.split())
+            return clip[:width] + ("…" if len(clip) > width else "")
+
+    # 3) fallback: début
+    clip = " ".join(full_text.split())
+    return clip[:width] + ("…" if len(clip) > width else "")
+
+def highlight(text: str, terms: list[str]) -> str:
+    if not text or not terms: 
+        return html.escape(text or "")
+    safe = html.escape(text)
+    for t in sorted(set(terms), key=len, reverse=True):
+        if not t:
+            continue
+        pattern = re.compile(rf"(?i)\b({re.escape(t)})\b")
+        safe = pattern.sub(r"<mark>\1</mark>", safe)
+    return safe
+
+def get_index_root() -> Path | None:
+    p = DATA_DIR / "_root.txt"
+    if p.exists():
+        try:
+            return Path(p.read_text(encoding="utf-8").strip())
+        except Exception:
+            return None
+    return None
 # ---------- Routes ----------
 @app.route("/", methods=["GET"])
-def index():
-    summaries = session.pop('last_summary', [])
-    return render_template("index.html", summaries=summaries)
-#UPLOAD
-@app.route("/upload", methods=["POST"])
-def upload_zip():
-
-    f = request.files.get("zipfile")
-    if not f or f.filename == "":
-        flash("Aucun fichier .zip sélectionné")
-        return redirect(url_for("index"))
-    if not f.filename.lower().endswith(".zip"):
-        flash("Merci de fournir un dossier compressé .zip")
-        return redirect(url_for("index"))
-
-    # reset data/ et index
-    if DATA_DIR.exists():
-        shutil.rmtree(DATA_DIR)
-    os.makedirs(DATA_DIR, exist_ok=True)
-    clear_index()
-
-    # sauvegarder puis EXTRAIRE d'abord
-    zip_path = DATA_DIR / "upload.zip"
-    f.save(str(zip_path))
-    with zipfile.ZipFile(zip_path, "r") as z:
-        z.extractall(DATA_DIR)
-    zip_path.unlink(missing_ok=True)
-
-    # indexer et REMPLIR summaries UNE SEULE FOIS
-    summaries = []
-    indexed = 0
-    for p in DATA_DIR.rglob("*"):
-        if p.is_file() and p.suffix.lower() in {".txt", ".htm", ".html", ".docx", ".pdf"}:
-            res = index_document(p, DATA_DIR)  # doit retourner {"name", "rel_path", "top":[(mot, freq),...]}
-            if res:
-                summaries.append(res)
-                indexed += 1
-
-    # stocker le résumé pour affichage unique 
-    session['last_summary'] = summaries
-    flash(f"Indexation terminée : {indexed} fichiers indexés.")
+def home():
+    # page d’accueil → redirige vers l’indexation
     return redirect(url_for("index"))
 
 
+@app.route("/index", methods=["GET"])
+def index():
+    # affiche le formulaire d’indexation + dernier résumé si dispo
+    summaries = session.pop('last_summary', [])
+    return render_template("index.html", summaries=summaries)
+
 @app.route("/index-path", methods=["POST"])
 def index_path():
+
     folder = request.form.get("folder_path", "").strip()
     if not folder:
         flash("Chemin vide.")
-        return redirect(url_for("index"))
+        return redirect(url_for("index"))   # <- page d'indexation
 
     root = Path(folder)
     if not root.exists() or not root.is_dir():
@@ -242,23 +259,25 @@ def index_path():
     os.makedirs(DATA_DIR, exist_ok=True)
     clear_index()
 
-    # copie "logique" : on ne copie pas, on indexe directement le dossier fourni
+    # mémoriser le dossier racine du dernier index (après recréation de DATA_DIR)
+    (DATA_DIR / "_root.txt").write_text(str(root), encoding="utf-8")
+
     summaries, indexed = [], 0
     for p in root.rglob("*"):
         if p.is_file() and p.suffix.lower() in {".txt", ".htm", ".html", ".docx", ".pdf"}:
             try:
-                # pour garder des chemins relatifs dans la DB, on fait comme si root = DATA_DIR
-                # on calcule un chemin "virtuel" relatif pour l'affichage
-                res = index_document(p, root)
+                res = index_document(p, root)  # doit retourner {"name","rel_path","top":[(mot,freq)...]}
                 if res:
                     summaries.append(res)
                     indexed += 1
             except Exception as e:
-                print(f"[WARN] {p}: {e}")
+                print(f"[WARN] Index fail {p}: {e}")
 
     session['last_summary'] = summaries
     flash(f"Indexation terminée : {indexed} fichiers indexés.")
-    return redirect(url_for("index"))
+    return redirect(url_for("index"))  # <- assure-toi que cette route existe
+
+
         #WORDCLOUD
 @app.route("/wordcloud/<int:doc_id>.png")
 def wordcloud_doc(doc_id: int):
@@ -278,52 +297,117 @@ def wordcloud_doc(doc_id: int):
     buf.seek(0)
     return send_file(buf, mimetype="image/png")
 
-#RECHERCHE
+# ------- Page 2 : RECHERCHE -------
 @app.route("/search", methods=["GET"])
-def search():
+def search_page():
     q = request.args.get("q", "").strip()
     if not q:
-        return render_template("results.html", q="", results=[])
+        return render_template("search.html", q="", results=[])
 
-    # tokenizer simple (multi-termes)
     terms = [w for w in normalize_text(q) if w]
     if not terms:
-        return render_template("results.html", q=q, results=[])
+        return render_template("search.html", q=q, results=[])
 
-    # agrégation des scores (somme des fréquences)
-    con = db_conn()
-    cur = con.cursor()
-    scores = defaultdict(int)
-    for term in terms:
-        cur.execute("SELECT doc_id, freq FROM frequencies WHERE word = ?", (term,))
-        for doc_id, freq in cur.fetchall():
-            scores[doc_id] += int(freq)
+    from collections import defaultdict
+    import math
 
-    if not scores:
+    con = db_conn(); cur = con.cursor()
+
+    # 1) Occurrences (TF brut) par doc sur tous les termes
+    placeholders = ",".join(["?"] * len(terms))
+    cur.execute(f"""
+        SELECT d.id, d.name, d.rel_path, SUM(f.freq) AS occ
+        FROM documents d
+        JOIN frequencies f ON d.id = f.doc_id
+        WHERE f.word IN ({placeholders})
+        GROUP BY d.id, d.name, d.rel_path
+        ORDER BY occ DESC
+    """, terms)
+    rows = cur.fetchall()
+    if not rows:
         con.close()
-        return render_template("results.html", q=q, results=[])
+        return render_template("search.html", q=q, results=[])
 
-    # récupérer métadonnées + construire snippet
-    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:50]
+    # 2) (Optionnel) calcul du score TF-IDF en plus du TF
+    #    On récupère tf par (doc, word) pour ces termes
+    cur.execute(f"""
+        SELECT doc_id, word, freq
+        FROM frequencies
+        WHERE word IN ({placeholders})
+    """, terms)
+    tf_rows = cur.fetchall()
+
+    # N et df(term) pour IDF
+    cur.execute("SELECT COUNT(*) FROM documents")
+    N = cur.fetchone()[0] or 1
+    df = {}
+    for t in terms:
+        cur.execute("SELECT COUNT(DISTINCT doc_id) FROM frequencies WHERE word = ?", (t,))
+        df[t] = cur.fetchone()[0] or 0
+    idf = {t: math.log(1.0 + (N / (df[t] + 1))) for t in terms}
+
+    scores = defaultdict(float)
+    for doc_id, word, tf in tf_rows:
+        if word in idf:
+            scores[doc_id] += float(tf) * idf[word]
+
+    # 3) Construire les résultats (vrai id + occurrences )
     results = []
-    for doc_id, score in ranked:
-        cur.execute("SELECT id, name, rel_path FROM documents WHERE id = ?", (doc_id,))
-        row = cur.fetchone()
-        if not row:
-            continue
-        doc_id, name, rel_path = row
-        full_path = DATA_DIR / rel_path
+    for did, name, rel_path, occ in rows:
+        root = get_index_root()
+        full_path = (root / rel_path) if root else (DATA_DIR / rel_path)
         raw = extract_text_from_file(full_path)
-        snippet = build_snippet(raw, terms[0])
+        snippet_text = build_snippet(raw, terms)
+        snippet_html = highlight(snippet_text, terms)
         results.append({
-            "id" : int(doc_id),
+            "id": int(did),
             "name": name,
             "rel_path": rel_path,
-            "score": int(score),
-            "snippet": snippet
+            "occurrences": int(occ),       # si tu utilises l’agrég SQL donnée précédemment
+            "snippet": snippet_html         # ★ important
         })
+
     con.close()
-    return render_template("results.html", q=q, results=results)
+    # Tri final : par TF-IDF si tu veux, sinon par occurrences
+    results.sort(key=lambda r: r["occurrences"], reverse=True)
+    print("DBG first snippet:", (results[0]["snippet"][:120] if results else "—"))
+    return render_template("search.html", q=q, results=results)
+
+
+
+@app.route("/open/<int:doc_id>")
+def open_doc(doc_id: int):
+    con = db_conn(); cur = con.cursor()
+    cur.execute("SELECT name, rel_path FROM documents WHERE id = ?", (doc_id,))
+    row = cur.fetchone()
+    con.close()
+    if not row:
+        abort(404)
+    name, rel_path = row
+
+    root = get_index_root()
+    base = root if root else DATA_DIR
+    file_path = (base / rel_path).resolve()
+
+    # Sécurité : empêcher l'évasion en dehors du root
+    if root and not str(file_path).startswith(str(root.resolve())):
+        abort(403)
+    if not file_path.exists():
+        abort(404)
+
+    mime, _ = mimetypes.guess_type(str(file_path))
+    inline_exts = {".pdf", ".txt", ".htm", ".html", ".png", ".jpg", ".jpeg", ".gif"}
+    as_attach = file_path.suffix.lower() not in inline_exts
+
+    return send_file(
+        file_path,
+        mimetype=mime or "application/octet-stream",
+        as_attachment=as_attach,
+        download_name=name
+    )
+
+
 
 if __name__ == "__main__":
+    print("URL MAP:\n", app.url_map)
     app.run(debug=True)

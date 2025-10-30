@@ -1,0 +1,170 @@
+/* Wrapper des résultats */
+.results-wrapper{
+  border:1px solid var(--border);
+  background:var(--card);
+  border-radius:14px;
+  padding:20px;
+  margin-top:18px;
+  box-shadow:var(--shadow);
+}
+
+/* Liste & items */
+.results-list{list-style:none;margin:0;padding:0}
+.results-list li.result-item{
+  display:grid;
+  grid-template-columns: minmax(180px,240px) 1fr 150px; /* gauche / centre / actions */
+  gap:20px;
+  align-items:start;
+  padding:16px 0;
+  border-bottom:1px dashed var(--border);
+}
+.results-list li.result-item:last-child{border-bottom:0}
+
+/* Colonne gauche : titre + meta */
+.result-file .result-title{
+  display:inline-block;
+  font-weight:800;
+  color:var(--text);
+  text-decoration:none;
+  margin-bottom:4px;
+}
+.result-file .result-meta{
+  display:block;
+  font-size:.92rem;
+  color:var(--muted);
+  line-height:1.3;
+}
+.result-file .path{
+  color:var(--muted);
+  max-width:240px;
+  display:inline-block;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+/* Colonne centre : extrait/snippet */
+.result-extract .result-snippet{
+  display:block;
+  padding:10px 12px;
+  background: color-mix(in srgb, var(--card) 92%, #000 8%);
+  border:1px solid var(--border);
+  border-radius:10px;
+  line-height:1.55;
+  color:var(--text);
+  word-wrap:break-word;
+}
+mark{
+  background:#fde04766;
+  font-weight:700;
+  border-radius:4px;
+  padding:0 .15em;
+}
+
+/* Colonne droite : actions verticales */
+.result-actions{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  align-items:stretch;
+}
+.btn-cloud,
+.btn-open{
+  display:inline-flex;
+  justify-content:center;
+  align-items:center;
+  min-height:56px;
+  padding:10px 14px;
+  border:0; border-radius:14px;
+  color:#fff; text-decoration:none;
+  transition:opacity .2s ease, transform .05s ease, box-shadow .2s ease;
+  box-shadow:0 2px 0 rgba(0,0,0,.08);
+}
+.btn-cloud{ background:#27b7a4; }        /* vert eau */
+.btn-open { background:#2563eb; }         /* bleu */
+.btn-cloud:hover, .btn-open:hover{ opacity:.92 }
+.btn-cloud:active, .btn-open:active{ transform:translateY(1px) }
+
+/* Petit badge si besoin */
+.badge{
+  display:inline-block;
+  min-width:1.8em;
+  padding:2px 8px;
+  border-radius:999px;
+  background: color-mix(in srgb, #27b7a4 20%, var(--card));
+  border:1px solid var(--border);
+  font-weight:700;
+}
+
+/* Responsive : empiler sous 900px */
+@media (max-width: 900px){
+  .results-list li.result-item{
+    grid-template-columns: 1fr; /* une seule colonne */
+  }
+  .result-actions{
+    flex-direction:row;
+    gap:10px;
+  }
+  .btn-cloud, .btn-open{
+    width:100%;
+    min-height:48px;
+  }
+  .result-file .path{ max-width:100% }
+}
+
+/* === Modal centrée === */
+.wc-modal{
+  position: fixed;
+  inset: 0;
+  display: flex;                 /* centre la boîte */
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;                 /* marge interne aux bords */
+  background: rgba(0,0,0,.55);   /* backdrop */
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+.hidden{ display: none !important; }  /* cache la modale quand inactive */
+
+.wc-dialog{
+  position: relative;
+  max-width: min(1000px, 92vw);
+  max-height: 86vh;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: auto;                /* scroll interne si image grande */
+  padding: 12px;
+  animation: wc-pop .18s ease-out;
+}
+@keyframes wc-pop {
+  from { transform: scale(.96); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+.wc-dialog img{
+  display: block;
+  max-width: 100%;
+  max-height: 80vh;             /* garde l’image dans la fenêtre */
+  height: auto;
+  object-fit: contain;
+}
+
+.wc-close{
+  position: absolute;
+  top: 8px; right: 8px;
+  padding: 6px 10px;
+  border: 0; border-radius: 10px;
+  background: var(--primary);
+  color: var(--primary-contrast);
+  cursor: pointer;
+  transition: opacity .2s ease, transform .05s ease;
+}
+.wc-close:hover{ opacity:.9 }
+.wc-close:active{ transform: translateY(1px) }
+
+/* Empêche le scroll de la page quand la modale est ouverte */
+body.modal-open{ overflow: hidden; }
+
+

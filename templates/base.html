@@ -2,27 +2,33 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <title>Indexation </title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Indexation & Recherche</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
 </head>
 <body>
-    <div class="container">
-<header>
-  <h1>Indexation </h1>
-  <p class="muted">Upload un <code>.zip</code> de documents → indexation → recherche plein texte .</p>
-</header>
-{% with messages = get_flashed_messages() %}
-  {% if messages %}
-    <div class="card">
-      {% for m in messages %}<div>{{ m }}</div>{% endfor %}
-    </div>
-  {% endif %}
-{% endwith %}
-<main>
-  {% block content %}{% endblock %}
-</main>
-</div>
+  <div class="container">
+    <header class="app-header">
+      <div class="logo-area">
+        <img src="{{ url_for('static', filename='img/logo1.png') }}" alt="TextScope Logo" class="logo">
+        <h1 class="title">TextScope — <span>Exploration intelligente de contenu</span></h1>
+      </div>
+      <nav class="top-nav">
+        <a href="{{ url_for('index') }}">Indexation</a>
+        <a href="{{ url_for('search_page') }}">Recherche</a>
+      </nav>
+    </header>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="toast">{% for m in messages %}<div>{{ m }}</div>{% endfor %}</div>
+      {% endif %}
+    {% endwith %}
+
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
 </body>
 </html>

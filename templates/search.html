@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/search.css') }}">
+
+<div class="card search-section">
+  <h3>Rechercher</h3>
+  <form action="{{ url_for('search_page') }}" method="get" class="row">
+    <div class="grow"><input type="text" name="q" placeholder="mots-clés…" value="{{ q|e }}"></div>
+    <div><button type="submit">Chercher</button></div>
+  </form>
+</div>
+
+<div class="results-wrapper">
+  <h3>Résultats pour : “{{ q }}”</h3>
+  {% if not results %}
+  <p>Aucun résultat.</p>
+  {% else %}
+  <ul class="results-list">
+  {% for r in results %}
+  <li class="result-item">
+    <!-- Colonne gauche -->
+    <div class="result-file">
+      <a href="#" class="result-title">{{ r.name }}</a>
+      <span class="result-meta">
+        <span class="badge">{{ r.occurrences }}</span> occurrence{{ 's' if r.occurrences>1 else '' }}
+        — <span class="path">{{ r.rel_path }}</span>
+      </span>
+    </div>
+
+    <!-- Colonne centre -->
+    <div class="result-extract">
+      <span class="result-snippet">{{ r.snippet | safe }}</span>
+    </div>
+
+    <!-- Colonne droite -->
+    <div class="result-actions">
+      <button class="btn-cloud" data-doc="{{ r.id }}">Nuage de mots</button>
+      <a class="btn-open" href="{{ url_for('open_doc', doc_id=r.id) }}" target="_blank" rel="noopener">
+        Ouvrir le fichier
+      </a>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+<!-- Modal -->
+<div id="wc-modal" class="wc-modal hidden">
+  <div class="wc-dialog">
+    <button id="wc-close" class="wc-close" aria-label="Fermer">✕</button>
+    <img id="wc-img" alt="Wordcloud" />
+  </div>
+</div>
+  {% endif %}
+</div>
+
+
+
+<!-- Modal WordCloud -->
+<div id="wc-modal" class="wc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="wc-title">
+  <div class="wc-dialog">
+    <button id="wc-close" class="wc-close" aria-label="Fermer">✕</button>
+    <img id="wc-img" alt="Wordcloud">
+  </div>
+</div>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const modal = document.getElementById('wc-modal');
+  const img   = document.getElementById('wc-img');
+  const closeBtn = document.getElementById('wc-close');
+
+  function openModal(docId){
+    // charge l’image + ouvre la modale
+    img.src = `/wordcloud/${docId}.png?ts=${Date.now()}`;
+    modal.classList.remove('hidden');
+    document.body.classList.add('modal-open');
+    closeBtn.focus();
+  }
+
+  function closeModal(){
+    modal.classList.add('hidden');
+    document.body.classList.remove('modal-open');
+    img.removeAttribute('src'); // libère la ressource
+  }
+
+  // Boutons "Nuage de mots"
+  document.querySelectorAll('.btn-cloud').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.getAttribute('data-doc');
+      openModal(id);
+    });
+  });
+
+  // Fermer (bouton, clic backdrop, ESC)
+  closeBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', e => { if(e.target === modal) closeModal(); });
+  document.addEventListener('keydown', e => {
+    if(!modal.classList.contains('hidden') && e.key === 'Escape') closeModal();
+  });
+});
+</script>
+{% endblock %}
