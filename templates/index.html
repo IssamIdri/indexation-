@@ -5,11 +5,9 @@
 <div class="card">
   <h3>Indexer un dossier local</h3>
   <form action="{{ url_for('index_path') }}" method="post" class="row">
-    <div class="grow">
-      <input type="text" name="folder_path" placeholder="Ex: C:\Users\ISSAM\Documents\mon_dossier" required>
-    </div>
-    <div><button type="submit">Indexer</button></div>
-  </form>
+  <input type="text" name="folder_path" placeholder="C:\...\mon_dossier" required>
+  <button type="submit">Indexer</button>
+</form>
   <span class="muted small">Formats pris : .txt, .html, .docx, .pdf (parcours récursif).</span>
 </div>
 

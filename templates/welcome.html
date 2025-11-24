@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/welcome.css') }}">
+
+<div class="welcome">
+  <div class="hero">
+    <img src="{{ url_for('static', filename='img/textscope_logo.png') }}" alt="TextScope" class="hero-logo">
+    <h1>TextScope — <span>Exploration intelligente de contenu</span></h1>
+    <p class="muted">Choisissez votre espace pour continuer.</p>
+  </div>
+
+  <div class="cards">
+    <a class="card role admin" href="{{ url_for('admin_home') }}">
+      <h3>Espace Administrateur</h3>
+      <p>Indexer un dossier, consulter les statistiques, effectuer des recherches.</p>
+    </a>
+
+    <a class="card role user" href="{{ url_for('search_page') }}">
+      <h3>Espace Utilisateur</h3>
+      <p>Rechercher dans le corpus indexé et afficher des extraits.</p>
+    </a>
+  </div>
+</div>
+{% endblock %}

@@ -231,14 +231,27 @@ def get_index_root() -> Path | None:
 @app.route("/", methods=["GET"])
 def home():
     # page d’accueil → redirige vers l’indexation
-    return redirect(url_for("index"))
+    return redirect(url_for("welcome"))
 
+@app.route("/welcome", methods=["GET"])
+def welcome():
+    # affiche le formulaire d’indexation + dernier résumé si dispo
+    summaries = session.pop('last_summary', [])
+    return render_template("welcome.html", summaries=summaries, hide_nav=True)
+
+@app.route("/admin", methods=["GET"])
+def admin_home():
+    return render_template("admin_home.html", role="admin")
+
+@app.route("/user")
+def user_home():
+    # tu peux rediriger vers la recherche directement
+    return render_template("search.html", q="", results=[], role="user")
 
 @app.route("/index", methods=["GET"])
 def index():
-    # affiche le formulaire d’indexation + dernier résumé si dispo
     summaries = session.pop('last_summary', [])
-    return render_template("index.html", summaries=summaries)
+    return render_template("index.html", summaries=summaries, role="admin")
 
 @app.route("/index-path", methods=["POST"])
 def index_path():
@@ -279,6 +292,7 @@ def index_path():
 
 
         #WORDCLOUD
+
 @app.route("/wordcloud/<int:doc_id>.png")
 def wordcloud_doc(doc_id: int):
     con = db_conn(); cur = con.cursor()
@@ -371,7 +385,8 @@ def search_page():
     # Tri final : par TF-IDF si tu veux, sinon par occurrences
     results.sort(key=lambda r: r["occurrences"], reverse=True)
     print("DBG first snippet:", (results[0]["snippet"][:120] if results else "—"))
-    return render_template("search.html", q=q, results=results)
+    role = request.args.get("role", "user")
+    return render_template("search.html", q=q, results=results, role=role)
 
 
 
@@ -406,6 +421,49 @@ def open_doc(doc_id: int):
         download_name=name
     )
 
+@app.route("/stats", methods=["GET"])
+def stats():
+    con = db_conn(); cur = con.cursor()
+
+    # KPIs
+    cur.execute("SELECT COUNT(*) FROM documents")
+    total_docs = cur.fetchone()[0] or 0
+
+    cur.execute("SELECT COALESCE(SUM(freq),0) FROM frequencies")
+    total_tokens = cur.fetchone()[0] or 0
+
+    cur.execute("SELECT COUNT(DISTINCT word) FROM frequencies")
+    vocab_size = cur.fetchone()[0] or 0
+
+    # Top 10 mots (corpus entier)
+    cur.execute("""
+        SELECT word, SUM(freq) AS f
+        FROM frequencies
+        GROUP BY word
+        ORDER BY f DESC
+        LIMIT 10
+    """)
+    top_words = cur.fetchall()  # [(word, f), ...]
+
+    # Top 10 documents par volume de tokens
+    cur.execute("""
+        SELECT d.id, d.name, d.rel_path, SUM(f.freq) AS tokens
+        FROM documents d
+        JOIN frequencies f ON f.doc_id = d.id
+        GROUP BY d.id, d.name, d.rel_path
+        ORDER BY tokens DESC
+        LIMIT 10
+    """)
+    top_docs = cur.fetchall()  # [(id, name, rel_path, tokens), ...]
+
+    con.close()
+    return render_template("stats.html",
+                           total_docs=total_docs,
+                           total_tokens=total_tokens,
+                           vocab_size=vocab_size,
+                           top_words=top_words,
+                           top_docs=top_docs,
+                           role="admin")
 
 
 if __name__ == "__main__":

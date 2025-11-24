@@ -1,0 +1,14 @@
+.stats h2{ margin-bottom:12px }
+.kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px }
+.kpi{ border:1px solid var(--border); background:var(--card); border-radius:14px; padding:14px; text-align:center; box-shadow:var(--shadow) }
+.kpi-num{ font-size:1.6rem; font-weight:800 }
+.kpi-label{ color:var(--muted) }
+.cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; margin-top:8px }
+.card{ border:1px solid var(--border); background:var(--card); border-radius:14px; padding:16px; box-shadow:var(--shadow) }
+.list{ margin:0; padding-left:18px }
+.list li{ margin:6px 0; display:flex; gap:8px; align-items:baseline; justify-content:space-between }
+.list .w{ font-weight:600 }
+.list .f{ color:var(--muted) }
+.actions{ margin-top:16px }
+.btn{ display:inline-block; padding:10px 14px; border-radius:10px; background:var(--primary); color:var(--primary-contrast); text-decoration:none }
+.btn:hover{ opacity:.92 }

@@ -111,6 +111,11 @@ mark{
   }
   .result-file .path{ max-width:100% }
 }
+.actions{ margin-top:16px }
+.btn{ display:block; width:max-content;
+  margin: 0 auto; padding:10px 14px; border-radius:10px; background:var(--primary); color:var(--primary-contrast); text-decoration:none }
+.btn:hover{ opacity:.50 }
+
 
 /* === Modal centrée === */
 .wc-modal{

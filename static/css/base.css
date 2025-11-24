@@ -112,53 +112,76 @@ button:disabled{opacity:.55;cursor:not-allowed}
   .card{padding:14px}
   button{width:100%}
 }
-.app-header {
-display: flex;
-justify-content: space-between;
-align-items: center;
-padding: 14px 28px;
-background: var(--card);
-border-bottom: 2px solid var(--border);
-box-shadow: var(--shadow);
+/* ---- HEADER TEXTSCOPE ---- */
+
+.app-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:32px;
+  padding:14px 28px;
+  background:var(--card);
+  border-bottom:1px solid var(--border);
+  box-shadow:var(--shadow);
 }
 
-
-.logo-area {
-display: flex;
-align-items: center;
-gap: 14px;
+/* Logo + titre à gauche */
+.logo-area{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  flex:1 1 auto;   /* prend la place restante */
+  min-width:0;     /* évite que ça écrase la nav */
 }
 
-
-.logo {
-width: 56px;
-height: 56px;
-border-radius: 12px;
+.logo{
+  width:48px;
+  height:48px;
+  border-radius:12px;
 }
 
-
-.title {
-font-size: 1.4rem;
-font-weight: 700;
-color: var(--text);
+/* Titre */
+.title{
+  font-size:1.4rem;
+  font-weight:700;
+  color:var(--text);
+  line-height:1.3;
+}
+.title span{
+  font-weight:400;
+  color:var(--muted);
 }
 
-
-.title span {
-font-weight: 400;
-color: var(--muted);
+/* Nav à droite */
+.top-nav{
+  display:flex;
+  flex:0 0 auto;
+  align-items:center;
+  gap:20px;
+  white-space:nowrap;     /* 🔥 empêche le retour à la ligne des liens */
 }
 
-
-.top-nav a {
-margin-left: 18px;
-text-decoration: none;
-color: var(--primary);
-font-weight: 600;
-transition: color 0.2s ease;
+.top-nav a{
+  text-decoration:none;
+  color:#16a3a0;           /* même couleur que tes boutons */
+  font-weight:600;
+  font-size:0.98rem;
+  padding:4px 0;
+}
+.top-nav a:hover{
+  text-decoration:underline;
 }
 
-
-.top-nav a:hover {
-color: #27b7a4;
+/* Optionnel : sur petits écrans encaisser la largeur */
+@media (max-width: 720px){
+  .app-header{
+    flex-direction:column;
+    align-items:flex-start;
+    gap:10px;
+  }
+  .top-nav{
+    white-space:normal;    /* autorise le retour à la ligne en mobile */
+    flex-wrap:wrap;
+    justify-content:flex-start;
+  }
 }

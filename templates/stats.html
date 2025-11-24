@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/stats.css') }}">
+
+<div class="stats">
+  <h2>Statistiques de l’indexation</h2>
+
+  <div class="kpis">
+    <div class="kpi"><div class="kpi-num">{{ total_docs }}</div><div class="kpi-label">Documents</div></div>
+    <div class="kpi"><div class="kpi-num">{{ total_tokens }}</div><div class="kpi-label">Tokens indexés</div></div>
+    <div class="kpi"><div class="kpi-num">{{ vocab_size }}</div><div class="kpi-label">Vocabulaire</div></div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h3>Top 10 mots (corpus)</h3>
+      <ol class="list">
+        {% for w,f in top_words %}
+          <li><span class="w">{{ w }}</span> <span class="f">× {{ f }}</span></li>
+        {% endfor %}
+      </ol>
+    </div>
+
+    <div class="card">
+      <h3>Top 10 documents (par tokens)</h3>
+      <ol class="list">
+        {% for did, name, rel, tokens in top_docs %}
+          <li>
+            <strong>{{ name }}</strong>
+            <span class="muted">— {{ rel }}</span>
+            <span class="f">× {{ tokens }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
+  </div>
+
+  <div class="actions">
+    <a class="btn" href="{{ url_for('admin_home') }}">← Retour </a>
+  </div>
+</div>
+{% endblock %}

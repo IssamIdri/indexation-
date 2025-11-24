@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+
+<div class="admin-home">
+  <h2>Administration</h2>
+  <div class="grid">
+      <a class="card link" href="{{ url_for('index') }}">
+      <h3>Indexation</h3>
+      <p>Choisir le dossier, lancer l’indexation, voir le top mots par document.</p>
+    </a>
+
+    <a class="card link" href="{{ url_for('stats') }}">
+      <h3>Statistiques</h3>
+      <p>Vue d’ensemble du corpus : volumes, top mots, top documents.</p>
+    </a>
+
+    <a class="card link" href="{{ url_for('search_page') }}">
+      <h3>Recherche</h3>
+      <p>Tester la pertinence des résultats et les extraits contextuels.</p>
+    </a>
+  </div>
+</div>
+{% endblock %}
