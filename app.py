@@ -3,7 +3,7 @@ from pathlib import Path
 import mimetypes
 from flask import send_file, abort
 from collections import Counter, defaultdict
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from bs4 import BeautifulSoup
 from docx import Document as DocxDocument
 from pdfminer.high_level import extract_text as pdf_extract_text
@@ -176,7 +176,7 @@ def clear_index():
     con.commit()
     con.close()
 
-def build_snippet(full_text: str, terms: list[str], width: int = 400) -> str:
+def build_snippet(full_text: str, terms: list[str], width: int = 150) -> str:
     """
     Retourne le 1er paragraphe (ou phrase) qui contient au moins un des termes (insensible à la casse).
     Fallback: début du texte si rien trouvé.
@@ -241,15 +241,18 @@ def welcome():
 
 @app.route("/admin", methods=["GET"])
 def admin_home():
+    session["user_role"] = "admin"
     return render_template("admin_home.html", role="admin")
 
 @app.route("/user")
 def user_home():
+    session["user_role"] = "user"
     # tu peux rediriger vers la recherche directement
     return render_template("search.html", q="", results=[], role="user")
 
 @app.route("/index", methods=["GET"])
 def index():
+    session["user_role"] = "admin"
     summaries = session.pop('last_summary', [])
     return render_template("index.html", summaries=summaries, role="admin")
 
@@ -314,13 +317,18 @@ def wordcloud_doc(doc_id: int):
 # ------- Page 2 : RECHERCHE -------
 @app.route("/search", methods=["GET"])
 def search_page():
+    # Récupérer le rôle depuis les paramètres ou la session, avec défaut "user"
+    role = request.args.get("role", session.get("user_role", "user"))
+    # Sauvegarder le rôle dans la session pour les prochaines requêtes
+    session["user_role"] = role
+    
     q = request.args.get("q", "").strip()
     if not q:
-        return render_template("search.html", q="", results=[])
+        return render_template("search.html", q="", results=[], role=role)
 
     terms = [w for w in normalize_text(q) if w]
     if not terms:
-        return render_template("search.html", q=q, results=[])
+        return render_template("search.html", q=q, results=[], role=role)
 
     from collections import defaultdict
     import math
@@ -385,10 +393,129 @@ def search_page():
     # Tri final : par TF-IDF si tu veux, sinon par occurrences
     results.sort(key=lambda r: r["occurrences"], reverse=True)
     print("DBG first snippet:", (results[0]["snippet"][:120] if results else "—"))
-    role = request.args.get("role", "user")
     return render_template("search.html", q=q, results=results, role=role)
 
 
+
+@app.route("/api/suggestions", methods=["GET"])
+def get_suggestions():
+    """API pour obtenir des suggestions de mots basées sur la distance de Levenshtein."""
+    import unicodedata
+    
+    try:
+        query = request.args.get("q", "").strip()
+        if not query or len(query) < 2:
+            return jsonify({"suggestions": []})
+        
+        # Fonction pour enlever les accents
+        def remove_accents(text: str) -> str:
+            nfd = unicodedata.normalize('NFD', text)
+            return ''.join(c for c in nfd if unicodedata.category(c) != 'Mn')
+        
+        # Normaliser la requête
+        search_term_original = query.lower()
+        search_term_no_accents = remove_accents(search_term_original)
+        
+        # Essayer aussi de normaliser avec lemmatisation si possible
+        try:
+            normalized_query = normalize_text(query)
+            search_term_normalized = normalized_query[0] if normalized_query else search_term_original
+        except Exception:
+            search_term_normalized = search_term_original
+        
+        # Fonction de distance de Levenshtein améliorée (ignore les accents)
+        def levenshtein_distance_ignore_accents(s1: str, s2: str) -> int:
+            s1_no_acc = remove_accents(s1.lower())
+            s2_no_acc = remove_accents(s2.lower())
+            
+            if len(s1_no_acc) < len(s2_no_acc):
+                return levenshtein_distance_ignore_accents(s2, s1)
+            if len(s2_no_acc) == 0:
+                return len(s1_no_acc)
+            
+            previous_row = range(len(s2_no_acc) + 1)
+            for i, c1 in enumerate(s1_no_acc):
+                current_row = [i + 1]
+                for j, c2 in enumerate(s2_no_acc):
+                    insertions = previous_row[j + 1] + 1
+                    deletions = current_row[j] + 1
+                    substitutions = previous_row[j] + (c1 != c2)
+                    current_row.append(min(insertions, deletions, substitutions))
+                previous_row = current_row
+            return previous_row[-1]
+        
+        # Récupérer tous les mots du vocabulaire
+        con = db_conn()
+        cur = con.cursor()
+        cur.execute("SELECT DISTINCT word FROM frequencies ORDER BY word")
+        all_words = [row[0] for row in cur.fetchall()]
+        con.close()
+        
+        if not all_words:
+            return jsonify({"suggestions": []})
+        
+        # Calculer les distances et trier
+        suggestions_with_distance = []
+        for word in all_words:
+            try:
+                word_lower = word.lower()
+                word_no_accents = remove_accents(word_lower)
+                
+                # Calculer la distance avec différentes variantes
+                distances = []
+                
+                # Distance avec le terme original
+                dist1 = levenshtein_distance_ignore_accents(search_term_original, word)
+                distances.append(dist1)
+                
+                # Distance avec le terme sans accents
+                dist2 = levenshtein_distance_ignore_accents(search_term_no_accents, word)
+                distances.append(dist2)
+                
+                # Distance avec le terme normalisé (lemmatisé)
+                if search_term_normalized != search_term_original:
+                    dist3 = levenshtein_distance_ignore_accents(search_term_normalized, word)
+                    distances.append(dist3)
+                
+                # Prendre la meilleure distance
+                distance = min(distances)
+                
+                # Distance maximale adaptative
+                max_distance = min(3, max(1, len(search_term_original) // 2))
+                
+                if distance <= max_distance:
+                    bonus = 0
+                    
+                    # Bonus si le mot commence par la même lettre (sans accents)
+                    if word_no_accents and search_term_no_accents and word_no_accents.startswith(search_term_no_accents[0]):
+                        bonus = -0.5
+                    
+                    # Bonus si le terme est contenu dans le mot (sans accents)
+                    if search_term_no_accents in word_no_accents:
+                        bonus = -1
+                    
+                    # Bonus si le mot commence par le terme (préfixe, sans accents)
+                    if word_no_accents.startswith(search_term_no_accents):
+                        bonus = -1.5
+                    
+                    # Bonus supplémentaire si correspondance exacte sans accents
+                    if word_no_accents == search_term_no_accents:
+                        bonus = -2
+                    
+                    suggestions_with_distance.append((word, distance + bonus))
+            except Exception as e:
+                # Ignorer les mots qui causent des erreurs
+                continue
+        
+        # Trier par distance et prendre les 5 meilleurs
+        suggestions_with_distance.sort(key=lambda x: x[1])
+        suggestions = [word for word, _ in suggestions_with_distance[:5]]
+        
+        return jsonify({"suggestions": suggestions})
+    
+    except Exception as e:
+        # En cas d'erreur, retourner une liste vide
+        return jsonify({"suggestions": [], "error": str(e)})
 
 @app.route("/open/<int:doc_id>")
 def open_doc(doc_id: int):
@@ -423,46 +550,97 @@ def open_doc(doc_id: int):
 
 @app.route("/stats", methods=["GET"])
 def stats():
-    con = db_conn(); cur = con.cursor()
+    session["user_role"] = "admin"
+    con = db_conn()
+    cur = con.cursor()
 
-    # KPIs
+    # KPIs de base
     cur.execute("SELECT COUNT(*) FROM documents")
     total_docs = cur.fetchone()[0] or 0
 
     cur.execute("SELECT COALESCE(SUM(freq),0) FROM frequencies")
-    total_tokens = cur.fetchone()[0] or 0
+    total_tokens_after = cur.fetchone()[0] or 0  # Mots après traitement
 
     cur.execute("SELECT COUNT(DISTINCT word) FROM frequencies")
     vocab_size = cur.fetchone()[0] or 0
 
-    # Top 10 mots (corpus entier)
+    # Taille totale des fichiers (en caractères, puis convertir en KB/MB)
+    cur.execute("SELECT COALESCE(SUM(length),0) FROM documents")
+    total_size_chars = cur.fetchone()[0] or 0
+    total_size_kb = total_size_chars / 1024
+    total_size_mb = total_size_kb / 1024
+
+    # Calculer les mots avant traitement (tous les tokens extraits avant filtrage)
+    # Estimation basée sur la taille des fichiers et le ratio moyen
+    # Ratio moyen observé : environ 1.5-2x plus de mots bruts que de tokens après traitement
+    # On peut aussi relire les fichiers si nécessaire, mais c'est coûteux
+    root = get_index_root()
+    total_words_before = 0
+    
+    # Option 1: Estimation rapide (recommandé pour de gros corpus)
+    if total_tokens_after > 0:
+        # Estimation basée sur le ratio moyen observé
+        total_words_before = int(total_tokens_after * 1.8)  # ~80% de réduction après filtrage
+    else:
+        total_words_before = 0
+    
+    # Option 2: Calcul précis (décommenter si besoin de précision, mais plus lent)
+    # if root:
+    #     try:
+    #         cur.execute("SELECT id, rel_path FROM documents")
+    #         docs = cur.fetchall()
+    #         for doc_id, rel_path in docs:
+    #             full_path = (root / rel_path) if root else (DATA_DIR / rel_path)
+    #             if full_path.exists():
+    #                 text = extract_text_from_file(full_path)
+    #                 # Compter tous les mots (avant normalisation)
+    #                 raw_tokens = WORD_RE.findall(text)
+    #                 total_words_before += len(raw_tokens)
+    #     except Exception as e:
+    #         print(f"[WARN] Erreur calcul mots avant traitement: {e}")
+
+    # Top 20 mots pour les graphiques (plus de données)
     cur.execute("""
         SELECT word, SUM(freq) AS f
         FROM frequencies
         GROUP BY word
         ORDER BY f DESC
-        LIMIT 10
+        LIMIT 20
     """)
     top_words = cur.fetchall()  # [(word, f), ...]
 
-    # Top 10 documents par volume de tokens
+    # Top 10 mots pour l'affichage liste
+    top_10_words = top_words[:10]
+
+    # Top 10 documents avec taille de fichier
     cur.execute("""
-        SELECT d.id, d.name, d.rel_path, SUM(f.freq) AS tokens
+        SELECT d.id, d.name, d.rel_path, d.length, SUM(f.freq) AS tokens
         FROM documents d
         JOIN frequencies f ON f.doc_id = d.id
-        GROUP BY d.id, d.name, d.rel_path
+        GROUP BY d.id, d.name, d.rel_path, d.length
         ORDER BY tokens DESC
         LIMIT 10
     """)
-    top_docs = cur.fetchall()  # [(id, name, rel_path, tokens), ...]
+    top_docs = cur.fetchall()  # [(id, name, rel_path, length, tokens), ...]
 
     con.close()
+    
+    # Préparer les données pour les graphiques
+    chart_words = [w[0] for w in top_words]
+    chart_freqs = [w[1] for w in top_words]
+
     return render_template("stats.html",
                            total_docs=total_docs,
-                           total_tokens=total_tokens,
+                           total_tokens_after=total_tokens_after,
+                           total_words_before=total_words_before,
                            vocab_size=vocab_size,
-                           top_words=top_words,
+                           total_size_chars=total_size_chars,
+                           total_size_kb=total_size_kb,
+                           total_size_mb=total_size_mb,
+                           top_words=top_10_words,
                            top_docs=top_docs,
+                           chart_words=chart_words,
+                           chart_freqs=chart_freqs,
                            role="admin")
 
 

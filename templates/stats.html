@@ -1,34 +1,62 @@
 {% extends "base.html" %}
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/stats.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
 <div class="stats">
-  <h2>Statistiques de l’indexation</h2>
+  <h2>Statistiques de l'indexation</h2>
 
+  <!-- KPIs principaux -->
   <div class="kpis">
-    <div class="kpi"><div class="kpi-num">{{ total_docs }}</div><div class="kpi-label">Documents</div></div>
-    <div class="kpi"><div class="kpi-num">{{ total_tokens }}</div><div class="kpi-label">Tokens indexés</div></div>
-    <div class="kpi"><div class="kpi-num">{{ vocab_size }}</div><div class="kpi-label">Vocabulaire</div></div>
+    <div class="kpi">
+      <div class="kpi-num">{{ total_docs }}</div>
+      <div class="kpi-label">Documents</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-num">
+        {% if total_size_mb >= 1 %}
+          {{ "%.1f"|format(total_size_mb) }}<span style="font-size:0.8em">MB</span>
+        {% else %}
+          {{ "%.0f"|format(total_size_kb) }}<span style="font-size:0.8em">KB</span>
+        {% endif %}
+      </div>
+      <div class="kpi-label">Taille totale</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-num" id="words-before">{{ total_words_before }}</div>
+      <div class="kpi-label">Mots trouvés</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-num" id="words-after">{{ total_tokens_after }}</div>
+      <div class="kpi-label">Mots après traitement</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-num">{{ vocab_size }}</div>
+      <div class="kpi-label">Vocabulaire unique</div>
+    </div>
   </div>
 
-  <div class="cards">
-    <div class="card">
-      <h3>Top 10 mots (corpus)</h3>
-      <ol class="list">
-        {% for w,f in top_words %}
-          <li><span class="w">{{ w }}</span> <span class="f">× {{ f }}</span></li>
-        {% endfor %}
-      </ol>
-    </div>
+  <!-- Graphique des mots fréquents -->
+  <div class="card chart-card">
+    <h3>Top 20 mots les plus fréquents</h3>
+    <canvas id="wordsChart"></canvas>
+  </div>
 
+  <!-- Statistiques détaillées -->
+  <div class="cards">
     <div class="card">
       <h3>Top 10 documents (par tokens)</h3>
       <ol class="list">
-        {% for did, name, rel, tokens in top_docs %}
+        {% for doc in top_docs %}
           <li>
-            <strong>{{ name }}</strong>
-            <span class="muted">— {{ rel }}</span>
-            <span class="f">× {{ tokens }}</span>
+            <div class="doc-info">
+              <strong>{{ doc[1] }}</strong>
+              <span class="muted">— {{ doc[2] }}</span>
+            </div>
+            <div class="doc-stats">
+              <span class="stat-item">{{ doc[4] }} tokens</span>
+              <span class="stat-item">{{ "%.1f"|format(doc[3]/1024) }} KB</span>
+            </div>
           </li>
         {% endfor %}
       </ol>
@@ -39,4 +67,60 @@
     <a class="btn" href="{{ url_for('admin_home') }}">← Retour </a>
   </div>
 </div>
+
+<script>
+// Formater les nombres avec espaces
+function formatNumber(num) {
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+document.getElementById('words-before').textContent = formatNumber({{ total_words_before }});
+document.getElementById('words-after').textContent = formatNumber({{ total_tokens_after }});
+
+// Graphique en barres des mots fréquents
+const ctx = document.getElementById('wordsChart').getContext('2d');
+const wordsChart = new Chart(ctx, {
+  type: 'bar',
+  data: {
+    labels: {{ chart_words|tojson }},
+    datasets: [{
+      label: 'Fréquence',
+      data: {{ chart_freqs|tojson }},
+      backgroundColor: 'rgba(63, 184, 175, 0.6)',
+      borderColor: 'rgba(63, 184, 175, 1)',
+      borderWidth: 1
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: {
+      legend: {
+        display: false
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            return 'Fréquence: ' + context.parsed.y;
+          }
+        }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: {
+          stepSize: 1
+        }
+      },
+      x: {
+        ticks: {
+          maxRotation: 45,
+          minRotation: 45
+        }
+      }
+    }
+  }
+});
+
+</script>
 {% endblock %}

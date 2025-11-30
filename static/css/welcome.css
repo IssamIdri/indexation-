@@ -1,9 +1,88 @@
-.welcome .hero{ text-align:center; margin:10px 0 18px }
-.hero-logo{ width:68px; height:68px; border-radius:14px; margin-bottom:8px }
-.welcome h1{ margin:4px 0 6px }
-.welcome h1 span{ color:var(--muted); font-weight:400 }
-.cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px }
-.card.role{ border:1px solid var(--border); background:var(--card); border-radius:14px; padding:16px; text-decoration:none; color:inherit; box-shadow:var(--shadow) }
-.card.role:hover{ outline:2px solid var(--ring) }
-.card.role.admin{ border-left:6px solid #2563eb }
-.card.role.user{ border-left:6px solid #27b7a4 }
+.welcome .hero{ 
+  text-align:center; 
+  margin:20px 0 32px;
+  padding:32px 0;
+}
+.hero-logo{ 
+  width:80px; 
+  height:80px; 
+  border-radius:18px; 
+  margin-bottom:16px;
+  box-shadow:var(--shadow-lg);
+  transition:transform 0.3s ease;
+}
+.hero-logo:hover{
+  transform:scale(1.1) rotate(5deg);
+}
+.welcome h1{ 
+  margin:8px 0 12px;
+  font-size:2rem;
+  font-weight:800;
+}
+.welcome h1 span{ 
+  color:var(--muted); 
+  font-weight:400;
+  display:block;
+  font-size:1.2rem;
+  margin-top:4px;
+}
+.cards{ 
+  display:grid; 
+  grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); 
+  gap:24px;
+  margin-top:32px;
+}
+.card.role{ 
+  border:2px solid var(--border); 
+  background:var(--card);
+  background-image:var(--gradient-card);
+  border-radius:16px; 
+  padding:28px; 
+  text-decoration:none; 
+  color:inherit; 
+  box-shadow:var(--shadow);
+  transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position:relative;
+  overflow:hidden;
+}
+.card.role::before{
+  content:'';
+  position:absolute;
+  top:0;
+  left:0;
+  width:6px;
+  height:100%;
+  transition:width 0.3s ease;
+}
+.card.role:hover{ 
+  transform:translateY(-4px);
+  box-shadow:var(--shadow-xl);
+  border-color:var(--primary);
+}
+.card.role:hover::before{
+  width:100%;
+  opacity:0.1;
+}
+.card.role.admin{ 
+  border-left:6px solid #2563eb;
+}
+.card.role.admin::before{
+  background:#2563eb;
+}
+.card.role.user{ 
+  border-left:6px solid #27b7a4;
+}
+.card.role.user::before{
+  background:#27b7a4;
+}
+.card.role h3{
+  margin:0 0 12px;
+  font-size:1.4rem;
+  font-weight:700;
+  color:var(--text);
+}
+.card.role p{
+  color:var(--muted);
+  line-height:1.6;
+  margin:0;
+}

@@ -17,18 +17,17 @@
 
         {% if not hide_nav %}
             <nav class="top-nav">
-
                 {% if role == "admin" %}
+                    {# Navigation complète pour admin #}
                     <a href="{{ url_for('welcome') }}">Accueil</a>
                     <a href="{{ url_for('index') }}">Indexation</a>
                     <a href="{{ url_for('stats') }}">Statistiques</a>
                     <a href="{{ url_for('search_page', role='admin') }}">Recherche</a>
-
                 {% else %}
+                    {# Navigation simplifiée pour utilisateur : seulement Accueil et Recherche #}
                     <a href="{{ url_for('welcome') }}">Accueil</a>
                     <a href="{{ url_for('search_page', role='user') }}">Recherche</a>
                 {% endif %}
-
             </nav>
         {% endif %}
     </header>
