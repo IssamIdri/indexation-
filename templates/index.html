@@ -3,12 +3,40 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
 
 <div class="card">
-  <h3>Indexer un dossier local</h3>
-  <form action="{{ url_for('index_path') }}" method="post" class="row">
-    <input type="text" name="folder_path" placeholder="C:\...\mon_dossier" required>
-    <button type="submit">Indexer</button>
+  <h3>Indexer un dossier ou fichier local</h3>
+  <form action="{{ url_for('index_path') }}" method="post" id="index-form" class="index-form" enctype="multipart/form-data">
+    <div class="file-selector-section">
+      <div class="file-input-wrapper">
+        <input type="file" id="folder-picker" webkitdirectory directory multiple style="display: none;">
+        <input type="file" id="file-picker" accept=".txt,.html,.htm,.docx,.pdf" multiple style="display: none;">
+        <input type="hidden" name="folder_path" id="folder_path">
+      </div>
+      <div class="file-buttons">
+        <button type="button" id="btn-choose-folder" class="btn-file">
+          📁 Choisir un dossier
+        </button>
+        <button type="button" id="btn-choose-file" class="btn-file">
+          📄 Choisir un ou plusieurs fichiers
+        </button>
+      </div>
+      <div id="selected-path" class="selected-path"></div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" id="btn-index" disabled>Indexer</button>
+    </div>
   </form>
-  <span class="muted small">Formats pris : .txt, .html, .docx, .pdf (parcours récursif).</span>
+  <div class="manual-path-section" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+    <details>
+      <summary style="cursor: pointer; color: #666; font-size: 14px;">Ou saisir le chemin manuellement</summary>
+      <form action="{{ url_for('index_path') }}" method="post" style="margin-top: 15px;">
+        <div class="row">
+          <input type="text" name="folder_path" placeholder="C:\...\mon_dossier" style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+          <button type="submit" style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">Indexer</button>
+        </div>
+      </form>
+    </details>
+  </div>
+  <span class="muted small">Formats pris : .txt, .html, .docx, .pdf (parcours récursif pour les dossiers).</span>
 </div>
 
 {% if summaries %}
@@ -34,4 +62,178 @@
   <p class="muted small">Ces stats sont calculées côté back après lemmatisation et filtrage (mots &lt; 2 caractères supprimés).</p>
 </div>
 {% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const folderPicker = document.getElementById('folder-picker');
+  const filePicker = document.getElementById('file-picker');
+  const btnChooseFolder = document.getElementById('btn-choose-folder');
+  const btnChooseFile = document.getElementById('btn-choose-file');
+  const selectedPathDiv = document.getElementById('selected-path');
+  const btnIndex = document.getElementById('btn-index');
+  const form = document.getElementById('index-form');
+  
+  let selectedFiles = null;
+  let isFolderSelection = false;
+
+  // Réinitialiser les autres inputs quand on en sélectionne un
+  folderPicker.addEventListener('change', function() {
+    filePicker.value = '';
+    selectedFiles = folderPicker.files;
+    isFolderSelection = true;
+    updateFileList(selectedFiles, true);
+  });
+
+  filePicker.addEventListener('change', function() {
+    folderPicker.value = '';
+    selectedFiles = filePicker.files;
+    isFolderSelection = false;
+    updateFileList(selectedFiles, false);
+  });
+
+  // Gérer le clic sur "Choisir un dossier"
+  btnChooseFolder.addEventListener('click', function() {
+    folderPicker.click();
+  });
+
+  // Gérer le clic sur "Choisir un fichier"
+  btnChooseFile.addEventListener('click', function() {
+    filePicker.click();
+  });
+
+  // Gérer la soumission du formulaire
+  form.addEventListener('submit', function(e) {
+    if (!selectedFiles || selectedFiles.length === 0) {
+      e.preventDefault();
+      alert('Veuillez sélectionner des fichiers ou un dossier.');
+      return;
+    }
+
+    // Créer un FormData avec les fichiers
+    const formData = new FormData();
+    
+    // Ajouter tous les fichiers valides et leurs chemins relatifs
+    const validExtensions = ['.txt', '.html', '.htm', '.docx', '.pdf'];
+    let hasValidFiles = false;
+    const filePaths = {};
+
+    let fileIndex = 0;
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      const ext = '.' + file.name.split('.').pop().toLowerCase();
+      
+      if (validExtensions.includes(ext)) {
+        // Ajouter le fichier (l'ordre sera préservé)
+        formData.append('files', file);
+        
+        // Stocker le chemin relatif par index (pour correspondre à l'ordre)
+        if (isFolderSelection && file.webkitRelativePath) {
+          filePaths[String(fileIndex)] = file.webkitRelativePath;
+        } else {
+          filePaths[String(fileIndex)] = file.name;
+        }
+        
+        fileIndex++;
+        hasValidFiles = true;
+      }
+    }
+
+    if (!hasValidFiles) {
+      e.preventDefault();
+      alert('Aucun fichier valide sélectionné. Formats acceptés: .txt, .html, .docx, .pdf');
+      return;
+    }
+
+    // Ajouter les chemins relatifs comme JSON
+    formData.append('file_paths', JSON.stringify(filePaths));
+
+    // Remplacer la soumission normale par une soumission avec FormData
+    e.preventDefault();
+    
+    // Désactiver le bouton pendant l'upload
+    btnIndex.disabled = true;
+    btnIndex.textContent = 'Indexation en cours...';
+
+    fetch(form.action, {
+      method: 'POST',
+      body: formData
+    })
+    .then(response => {
+      if (response.redirected) {
+        window.location.href = response.url;
+      } else {
+        return response.text().then(text => {
+          throw new Error('Erreur lors de l\'indexation');
+        });
+      }
+    })
+    .catch(error => {
+      console.error('Erreur:', error);
+      alert('Erreur lors de l\'indexation: ' + error.message);
+      btnIndex.disabled = false;
+      btnIndex.textContent = 'Indexer';
+    });
+  });
+
+  function updateFileList(files, isFolder) {
+    if (!files || files.length === 0) {
+      selectedPathDiv.innerHTML = '';
+      selectedPathDiv.style.display = 'none';
+      btnIndex.disabled = true;
+      return;
+    }
+
+    // Compter les fichiers valides
+    const validExtensions = ['.txt', '.html', '.htm', '.docx', '.pdf'];
+    let validCount = 0;
+    let folderName = '';
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const ext = '.' + file.name.split('.').pop().toLowerCase();
+      if (validExtensions.includes(ext)) {
+        validCount++;
+        if (isFolder && !folderName) {
+          // Extraire le nom du dossier depuis webkitRelativePath
+          const webkitPath = file.webkitRelativePath || '';
+          folderName = webkitPath.split('/')[0] || 'Dossier sélectionné';
+        }
+      }
+    }
+
+    if (validCount === 0) {
+      selectedPathDiv.innerHTML = '<div style="color: #d32f2f; padding: 10px;">Aucun fichier valide sélectionné. Formats acceptés: .txt, .html, .docx, .pdf</div>';
+      selectedPathDiv.style.display = 'block';
+      btnIndex.disabled = true;
+      return;
+    }
+
+    // Afficher les informations
+    let infoHtml = '';
+    if (isFolder) {
+      infoHtml = `
+        <div style="margin: 10px 0; padding: 12px; background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 4px;">
+          <strong>📁 Dossier sélectionné:</strong> ${folderName}<br>
+          <strong>Fichiers valides:</strong> ${validCount} sur ${files.length} fichiers trouvés<br>
+          <small style="color: #666;">Prêt à indexer. Cliquez sur "Indexer" pour commencer.</small>
+        </div>
+      `;
+    } else {
+      const fileNames = Array.from(files).slice(0, 3).map(f => f.name).join(', ');
+      const moreFiles = files.length > 3 ? ` et ${files.length - 3} autre(s)` : '';
+      infoHtml = `
+        <div style="margin: 10px 0; padding: 12px; background: #e8f5e9; border-left: 4px solid #4caf50; border-radius: 4px;">
+          <strong>📄 Fichiers sélectionnés:</strong> ${fileNames}${moreFiles}<br>
+          <strong>Total:</strong> ${validCount} fichier(s) valide(s)<br>
+          <small style="color: #666;">Prêt à indexer. Cliquez sur "Indexer" pour commencer.</small>
+        </div>
+      `;
+    }
+
+    selectedPathDiv.innerHTML = infoHtml;
+    selectedPathDiv.style.display = 'block';
+    btnIndex.disabled = false;
+  }
+});
+</script>
 {% endblock %}

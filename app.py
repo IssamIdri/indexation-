@@ -83,7 +83,8 @@ def init_db():
     con.commit()
     con.close()
 
-init_db()# ---------- Lemmatisation ----------
+init_db()
+# ---------- Lemmatisation ----------
 def guess_lang(text: str) -> str:
     """Heuristique très simple FR/EN selon stop-words et caractères ; suffisant ici."""
     if not text:
@@ -258,11 +259,18 @@ def index():
 
 @app.route("/index-path", methods=["POST"])
 def index_path():
-
+    # Vérifier si des fichiers ont été uploadés
+    if 'files' in request.files:
+        files = request.files.getlist('files')
+        if files and files[0].filename:
+            # Traitement des fichiers uploadés
+            return index_uploaded_files(files)
+    
+    # Sinon, traitement par chemin (méthode originale)
     folder = request.form.get("folder_path", "").strip()
     if not folder:
         flash("Chemin vide.")
-        return redirect(url_for("index"))   # <- page d'indexation
+        return redirect(url_for("index"))
 
     root = Path(folder)
     if not root.exists() or not root.is_dir():
@@ -291,7 +299,69 @@ def index_path():
 
     session['last_summary'] = summaries
     flash(f"Indexation terminée : {indexed} fichiers indexés.")
-    return redirect(url_for("index"))  # <- assure-toi que cette route existe
+    return redirect(url_for("index"))
+
+def index_uploaded_files(files):
+    """Indexe les fichiers uploadés directement."""
+    import json
+    
+    # reset data/ et index
+    if DATA_DIR.exists():
+        shutil.rmtree(DATA_DIR)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    clear_index()
+
+    # Créer un dossier racine virtuel pour les fichiers uploadés
+    virtual_root = DATA_DIR / "uploaded"
+    virtual_root.mkdir(parents=True, exist_ok=True)
+    
+    # Récupérer les chemins relatifs depuis le formulaire
+    file_paths_json = request.form.get('file_paths', '{}')
+    try:
+        file_paths = json.loads(file_paths_json)
+    except:
+        file_paths = {}
+    
+    summaries, indexed = [], 0
+    file_list = list(files)
+    file_index = 0
+    
+    for file in file_list:
+        if not file.filename:
+            continue
+            
+        # Vérifier l'extension
+        ext = Path(file.filename).suffix.lower()
+        if ext not in {".txt", ".htm", ".html", ".docx", ".pdf"}:
+            continue
+        
+        try:
+            # Trouver le chemin relatif correspondant par index
+            relative_path = file_paths.get(str(file_index), file.filename)
+            file_index += 1
+            
+            # Nettoyer le chemin (remplacer les backslashes par des slashes)
+            safe_path = relative_path.replace("\\", "/")
+            file_path = virtual_root / safe_path
+            
+            # Créer les sous-dossiers si nécessaire
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Sauvegarder le fichier
+            file.save(str(file_path))
+            
+            # Indexer le fichier
+            res = index_document(file_path, virtual_root)
+            if res:
+                summaries.append(res)
+                indexed += 1
+        except Exception as e:
+            print(f"[WARN] Index fail {file.filename}: {e}")
+    
+    (DATA_DIR / "_root.txt").write_text(str(virtual_root), encoding="utf-8")
+    session['last_summary'] = summaries
+    flash(f"Indexation terminée : {indexed} fichiers indexés.")
+    return redirect(url_for("index"))
 
 
         #WORDCLOUD
@@ -314,7 +384,7 @@ def wordcloud_doc(doc_id: int):
     buf.seek(0)
     return send_file(buf, mimetype="image/png")
 
-# ------- Page 2 : RECHERCHE -------
+# -------  RECHERCHE -------
 @app.route("/search", methods=["GET"])
 def search_page():
     # Récupérer le rôle depuis les paramètres ou la session, avec défaut "user"
@@ -350,7 +420,6 @@ def search_page():
         con.close()
         return render_template("search.html", q=q, results=[])
 
-    # 2) (Optionnel) calcul du score TF-IDF en plus du TF
     #    On récupère tf par (doc, word) pour ces termes
     cur.execute(f"""
         SELECT doc_id, word, freq
@@ -359,7 +428,6 @@ def search_page():
     """, terms)
     tf_rows = cur.fetchall()
 
-    # N et df(term) pour IDF
     cur.execute("SELECT COUNT(*) FROM documents")
     N = cur.fetchone()[0] or 1
     df = {}
@@ -373,7 +441,7 @@ def search_page():
         if word in idf:
             scores[doc_id] += float(tf) * idf[word]
 
-    # 3) Construire les résultats (vrai id + occurrences )
+    #  Construire les résultats (vrai id + occurrences )
     results = []
     for did, name, rel_path, occ in rows:
         root = get_index_root()
@@ -390,7 +458,6 @@ def search_page():
         })
 
     con.close()
-    # Tri final : par TF-IDF si tu veux, sinon par occurrences
     results.sort(key=lambda r: r["occurrences"], reverse=True)
     print("DBG first snippet:", (results[0]["snippet"][:120] if results else "—"))
     return render_template("search.html", q=q, results=results, role=role)
@@ -584,20 +651,6 @@ def stats():
     else:
         total_words_before = 0
     
-    # Option 2: Calcul précis (décommenter si besoin de précision, mais plus lent)
-    # if root:
-    #     try:
-    #         cur.execute("SELECT id, rel_path FROM documents")
-    #         docs = cur.fetchall()
-    #         for doc_id, rel_path in docs:
-    #             full_path = (root / rel_path) if root else (DATA_DIR / rel_path)
-    #             if full_path.exists():
-    #                 text = extract_text_from_file(full_path)
-    #                 # Compter tous les mots (avant normalisation)
-    #                 raw_tokens = WORD_RE.findall(text)
-    #                 total_words_before += len(raw_tokens)
-    #     except Exception as e:
-    #         print(f"[WARN] Erreur calcul mots avant traitement: {e}")
 
     # Top 20 mots pour les graphiques (plus de données)
     cur.execute("""
