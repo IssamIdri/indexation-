@@ -4,8 +4,18 @@
 
 <div class="card search-section">
   <h3>Rechercher</h3>
-  <form action="{{ url_for('search_page') }}" method="get" class="row">
-    <div class="grow"><input type="text" name="q" placeholder="mots-clés…" value="{{ q|e }}"></div>
+  <form action="{{ url_for('search_page') }}" method="get" class="row" id="search-form">
+    <div class="grow search-input-wrapper">
+      <input type="text" name="q" id="search-input" placeholder="" value="{{ q|e }}" autocomplete="off">
+      <div id="suggestions" class="suggestions hidden">
+        <div class="suggestions-header">
+          <span class="suggestions-icon">🔍</span>
+          <span>Suggestions de correction :</span>
+        </div>
+        <div class="suggestions-list"></div>
+      </div>
+    </div>
+    <input type="hidden" name="role" value="{{ role }}">
     <div><button type="submit">Chercher</button></div>
   </form>
 </div>
@@ -42,17 +52,90 @@
   </li>
   {% endfor %}
 </ul>
-<!-- Modal -->
-<div id="wc-modal" class="wc-modal hidden">
-  <div class="wc-dialog">
-    <button id="wc-close" class="wc-close" aria-label="Fermer">✕</button>
-    <img id="wc-img" alt="Wordcloud" />
+
+  <!-- Pagination -->
+  <!-- TEST: total_pages={{ total_pages|default('NON_DEFINI') }}, total_results={{ total_results|default('NON_DEFINI') }} -->
+  <!-- FORCER AFFICHAGE TEMPORAIRE -->
+  <div class="pagination" style="display: flex !important; background: yellow !important; padding: 20px !important; margin: 20px 0 !important;">
+    <div style="color: black; font-weight: bold;">TEST PAGINATION - total_pages={{ total_pages|default('NON_DEFINI') }}, total_results={{ total_results|default('NON_DEFINI') }}</div>
   </div>
-</div>
+  {% if total_pages and total_pages > 1 %}
+  <div class="pagination">
+    <div class="pagination-info">
+      Page {{ page|default(1) }} sur {{ total_pages }} ({{ total_results|default(0) }} résultat{{ 's' if total_results|default(0) > 1 else '' }})
+    </div>
+    <div class="pagination-controls">
+      {% if page|default(1) > 1 %}
+      <a href="{{ url_for('search_page', q=q, role=role, page=page|default(1) - 1) }}" class="pagination-btn pagination-prev" aria-label="Page précédente">
+        <span>&lt;</span>
+      </a>
+      {% else %}
+      <span class="pagination-btn pagination-prev disabled" aria-label="Page précédente" aria-disabled="true">
+        <span>&lt;</span>
+      </span>
+      {% endif %}
+
+      {% set current_page = page|default(1) %}
+      {% set total_pages_num = total_pages|default(1) %}
+      
+      {% if total_pages_num <= 7 %}
+        {% for p in range(1, total_pages_num + 1) %}
+          {% if p == current_page %}
+          <span class="pagination-number active" aria-current="page">{{ p }}</span>
+          {% else %}
+          <a href="{{ url_for('search_page', q=q, role=role, page=p) }}" class="pagination-number">{{ p }}</a>
+          {% endif %}
+        {% endfor %}
+      {% else %}
+        {% if current_page <= 3 %}
+          {% for p in range(1, 4) %}
+            {% if p == current_page %}
+            <span class="pagination-number active" aria-current="page">{{ p }}</span>
+            {% else %}
+            <a href="{{ url_for('search_page', q=q, role=role, page=p) }}" class="pagination-number">{{ p }}</a>
+            {% endif %}
+          {% endfor %}
+          <span class="pagination-ellipsis">...</span>
+          <a href="{{ url_for('search_page', q=q, role=role, page=total_pages_num) }}" class="pagination-number">{{ total_pages_num }}</a>
+        {% elif current_page >= total_pages_num - 2 %}
+          <a href="{{ url_for('search_page', q=q, role=role, page=1) }}" class="pagination-number">1</a>
+          <span class="pagination-ellipsis">...</span>
+          {% for p in range(total_pages_num - 2, total_pages_num + 1) %}
+            {% if p == current_page %}
+            <span class="pagination-number active" aria-current="page">{{ p }}</span>
+            {% else %}
+            <a href="{{ url_for('search_page', q=q, role=role, page=p) }}" class="pagination-number">{{ p }}</a>
+            {% endif %}
+          {% endfor %}
+        {% else %}
+          <a href="{{ url_for('search_page', q=q, role=role, page=1) }}" class="pagination-number">1</a>
+          <span class="pagination-ellipsis">...</span>
+          {% for p in range(current_page - 1, current_page + 2) %}
+            {% if p == current_page %}
+            <span class="pagination-number active" aria-current="page">{{ p }}</span>
+            {% else %}
+            <a href="{{ url_for('search_page', q=q, role=role, page=p) }}" class="pagination-number">{{ p }}</a>
+            {% endif %}
+          {% endfor %}
+          <span class="pagination-ellipsis">...</span>
+          <a href="{{ url_for('search_page', q=q, role=role, page=total_pages_num) }}" class="pagination-number">{{ total_pages_num }}</a>
+        {% endif %}
+      {% endif %}
+
+      {% if page|default(1) < total_pages|default(1) %}
+      <a href="{{ url_for('search_page', q=q, role=role, page=page|default(1) + 1) }}" class="pagination-btn pagination-next" aria-label="Page suivante">
+        <span>&gt;</span>
+      </a>
+      {% else %}
+      <span class="pagination-btn pagination-next disabled" aria-label="Page suivante" aria-disabled="true">
+        <span>&gt;</span>
+      </span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
   {% endif %}
 </div>
-
-
 
 <!-- Modal WordCloud -->
 <div id="wc-modal" class="wc-modal hidden" role="dialog" aria-modal="true" aria-labelledby="wc-title">
@@ -65,38 +148,203 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
+  // Gestion des suggestions de mots
+  const searchInput = document.getElementById('search-input');
+  const suggestionsDiv = document.getElementById('suggestions');
+  let suggestionTimeout = null;
+  let selectedSuggestionIndex = -1;
+
+  if (!searchInput || !suggestionsDiv) {
+    console.error('searchInput ou suggestionsDiv introuvable!', { searchInput, suggestionsDiv });
+    return;
+  }
+
+  // Fonction pour afficher les suggestions
+  function displaySuggestions(suggestions) {
+    const suggestionsList = suggestionsDiv.querySelector('.suggestions-list');
+    if (!suggestionsList) {
+      console.error('suggestions-list introuvable');
+      return;
+    }
+    
+    console.log('Affichage de', suggestions.length, 'suggestions:', suggestions);
+    suggestionsList.innerHTML = '';
+    selectedSuggestionIndex = -1;
+    
+    if (suggestions.length === 0) {
+      suggestionsDiv.classList.add('hidden');
+      suggestionsDiv.style.display = 'none';
+      return;
+    }
+    
+    suggestions.forEach((suggestion, index) => {
+      const item = document.createElement('div');
+      item.className = 'suggestion-item';
+      item.textContent = suggestion;
+      item.addEventListener('click', () => {
+        searchInput.value = suggestion;
+        suggestionsDiv.classList.add('hidden');
+        suggestionsDiv.style.display = 'none';
+        document.getElementById('search-form').submit();
+      });
+      suggestionsList.appendChild(item);
+    });
+    
+    // Retirer la classe hidden et forcer l'affichage avec style inline
+    suggestionsDiv.classList.remove('hidden');
+    suggestionsDiv.style.setProperty('display', 'flex', 'important');
+    console.log('Suggestions affichées, hidden retiré');
+    console.log('Style computed:', window.getComputedStyle(suggestionsDiv).display);
+  }
+
+  // Fonction pour mettre à jour la sélection au clavier
+  function updateSelectedSuggestion(suggestions) {
+    suggestions.forEach((item, index) => {
+      if (index === selectedSuggestionIndex) {
+        item.classList.add('selected');
+      } else {
+        item.classList.remove('selected');
+      }
+    });
+  }
+
+  // Écouter les changements dans le champ de recherche
+  searchInput.addEventListener('input', (e) => {
+    const query = e.target.value.trim();
+    console.log('Saisie détectée:', query); // Debug
+    
+    // Annuler le timeout précédent
+    if (suggestionTimeout) {
+      clearTimeout(suggestionTimeout);
+    }
+    
+    // Masquer les suggestions si le champ est vide
+    if (query.length < 2) {
+      suggestionsDiv.classList.add('hidden');
+      suggestionsDiv.style.display = 'none';
+      return;
+    }
+    
+    // Attendre 200ms avant de faire la requête (debounce)
+    suggestionTimeout = setTimeout(() => {
+      console.log('Requête suggestions pour:', query); // Debug
+      fetch(`/api/suggestions?q=${encodeURIComponent(query)}`)
+        .then(res => {
+          console.log('Réponse reçue, status:', res.status); // Debug
+          // Accepter même les codes d'erreur pour voir le message
+          return res.json().catch(() => {
+            // Si le JSON ne peut pas être parsé, retourner une structure vide
+            return { suggestions: [], error: 'Réponse invalide' };
+          });
+        })
+        .then(data => {
+          console.log('Suggestions reçues:', data); // Debug
+          if (data && data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+            console.log('Affichage de', data.suggestions.length, 'suggestions'); // Debug
+            displaySuggestions(data.suggestions);
+            } else {
+              console.log('Aucune suggestion trouvée, données:', data); // Debug
+              if (data && data.error) {
+                console.warn('Erreur API:', data.error);
+              }
+              suggestionsDiv.classList.add('hidden');
+              suggestionsDiv.style.display = 'none';
+            }
+        })
+        .catch(err => {
+          console.error('Erreur lors de la récupération des suggestions:', err);
+          console.error('Détails:', err.message, err.stack);
+          suggestionsDiv.classList.add('hidden');
+          suggestionsDiv.style.display = 'none';
+        });
+    }, 200);
+  });
+  
+  // Afficher les suggestions aussi au focus si il y a déjà du texte
+  searchInput.addEventListener('focus', (e) => {
+    const query = e.target.value.trim();
+    if (query.length >= 2) {
+      // Déclencher une recherche de suggestions
+      const event = new Event('input', { bubbles: true });
+      e.target.dispatchEvent(event);
+    }
+  });
+
+  // Gérer la navigation au clavier dans les suggestions
+  searchInput.addEventListener('keydown', (e) => {
+    const suggestions = suggestionsDiv.querySelectorAll('.suggestion-item');
+    if (suggestions.length === 0) return;
+    
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedSuggestionIndex = Math.min(selectedSuggestionIndex + 1, suggestions.length - 1);
+      updateSelectedSuggestion(suggestions);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedSuggestionIndex = Math.max(selectedSuggestionIndex - 1, -1);
+      updateSelectedSuggestion(suggestions);
+    } else if (e.key === 'Enter' && selectedSuggestionIndex >= 0) {
+      e.preventDefault();
+      const selected = suggestions[selectedSuggestionIndex];
+      if (selected) {
+        searchInput.value = selected.textContent.trim();
+        suggestionsDiv.classList.add('hidden');
+        document.getElementById('search-form').submit();
+      }
+    } else if (e.key === 'Escape') {
+      suggestionsDiv.classList.add('hidden');
+      suggestionsDiv.style.display = 'none';
+      selectedSuggestionIndex = -1;
+    }
+  });
+
+  // Masquer les suggestions quand on clique ailleurs
+  document.addEventListener('click', (e) => {
+    const searchWrapper = document.querySelector('.search-input-wrapper');
+    if (searchWrapper && !searchWrapper.contains(e.target)) {
+      suggestionsDiv.classList.add('hidden');
+      suggestionsDiv.style.display = 'none';
+      selectedSuggestionIndex = -1;
+    }
+  });
+
+  // Gestion du modal WordCloud
   const modal = document.getElementById('wc-modal');
-  const img   = document.getElementById('wc-img');
+  const img = document.getElementById('wc-img');
   const closeBtn = document.getElementById('wc-close');
 
-  function openModal(docId){
-    // charge l’image + ouvre la modale
-    img.src = `/wordcloud/${docId}.png?ts=${Date.now()}`;
-    modal.classList.remove('hidden');
-    document.body.classList.add('modal-open');
-    closeBtn.focus();
-  }
+  if (modal && img && closeBtn) {
+    function openModal(docId) {
+      // charge l'image + ouvre la modale
+      img.src = `/wordcloud/${docId}.png?ts=${Date.now()}`;
+      modal.classList.remove('hidden');
+      document.body.classList.add('modal-open');
+      closeBtn.focus();
+    }
 
-  function closeModal(){
-    modal.classList.add('hidden');
-    document.body.classList.remove('modal-open');
-    img.removeAttribute('src'); // libère la ressource
-  }
+    function closeModal() {
+      modal.classList.add('hidden');
+      document.body.classList.remove('modal-open');
+      img.removeAttribute('src'); // libère la ressource
+    }
 
-  // Boutons "Nuage de mots"
-  document.querySelectorAll('.btn-cloud').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const id = btn.getAttribute('data-doc');
-      openModal(id);
+    // Boutons "Nuage de mots"
+    document.querySelectorAll('.btn-cloud').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-doc');
+        openModal(id);
+      });
     });
-  });
 
-  // Fermer (bouton, clic backdrop, ESC)
-  closeBtn.addEventListener('click', closeModal);
-  modal.addEventListener('click', e => { if(e.target === modal) closeModal(); });
-  document.addEventListener('keydown', e => {
-    if(!modal.classList.contains('hidden') && e.key === 'Escape') closeModal();
-  });
+    // Fermer (bouton, clic backdrop, ESC)
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', e => {
+      if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', e => {
+      if (!modal.classList.contains('hidden') && e.key === 'Escape') closeModal();
+    });
+  }
 });
 </script>
 {% endblock %}

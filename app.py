@@ -255,16 +255,28 @@ def user_home():
 def index():
     session["user_role"] = "admin"
     summaries = session.pop('last_summary', [])
-    return render_template("index.html", summaries=summaries, role="admin")
+    indexation_success = session.pop('indexation_success', False)
+    return render_template("index.html", summaries=summaries, role="admin", hide_flash=True, indexation_success=indexation_success)
 
 @app.route("/index-path", methods=["POST"])
 def index_path():
+    # Récupérer les types de fichiers sélectionnés (depuis form ou files)
+    selected_types = request.form.getlist('file_types')
+    # Si aucun type n'est sélectionné, utiliser tous les types par défaut
+    if not selected_types:
+        allowed_extensions = {".txt", ".htm", ".html", ".docx", ".pdf"}
+    else:
+        allowed_extensions = set(selected_types)
+        # Ajouter .htm si .html est sélectionné
+        if ".html" in allowed_extensions:
+            allowed_extensions.add(".htm")
+    
     # Vérifier si des fichiers ont été uploadés
     if 'files' in request.files:
         files = request.files.getlist('files')
         if files and files[0].filename:
             # Traitement des fichiers uploadés
-            return index_uploaded_files(files)
+            return index_uploaded_files(files, allowed_extensions)
     
     # Sinon, traitement par chemin (méthode originale)
     folder = request.form.get("folder_path", "").strip()
@@ -288,7 +300,7 @@ def index_path():
 
     summaries, indexed = [], 0
     for p in root.rglob("*"):
-        if p.is_file() and p.suffix.lower() in {".txt", ".htm", ".html", ".docx", ".pdf"}:
+        if p.is_file() and p.suffix.lower() in allowed_extensions:
             try:
                 res = index_document(p, root)  # doit retourner {"name","rel_path","top":[(mot,freq)...]}
                 if res:
@@ -298,12 +310,24 @@ def index_path():
                 print(f"[WARN] Index fail {p}: {e}")
 
     session['last_summary'] = summaries
-    flash(f"Indexation terminée : {indexed} fichiers indexés.")
+    session['indexation_success'] = True
     return redirect(url_for("index"))
 
-def index_uploaded_files(files):
+def index_uploaded_files(files, allowed_extensions=None):
     """Indexe les fichiers uploadés directement."""
     import json
+    
+    # Récupérer les types depuis le formulaire si non fournis
+    if allowed_extensions is None:
+        selected_types = request.form.getlist('file_types')
+        if selected_types:
+            allowed_extensions = set(selected_types)
+            if ".html" in allowed_extensions:
+                allowed_extensions.add(".htm")
+        else:
+            allowed_extensions = {".txt", ".htm", ".html", ".docx", ".pdf"}
+    
+    print(f"[DEBUG] Types de fichiers autorisés: {allowed_extensions}")
     
     # reset data/ et index
     if DATA_DIR.exists():
@@ -330,9 +354,9 @@ def index_uploaded_files(files):
         if not file.filename:
             continue
             
-        # Vérifier l'extension
+        # Vérifier l'extension selon les types sélectionnés
         ext = Path(file.filename).suffix.lower()
-        if ext not in {".txt", ".htm", ".html", ".docx", ".pdf"}:
+        if ext not in allowed_extensions:
             continue
         
         try:
@@ -360,7 +384,7 @@ def index_uploaded_files(files):
     
     (DATA_DIR / "_root.txt").write_text(str(virtual_root), encoding="utf-8")
     session['last_summary'] = summaries
-    flash(f"Indexation terminée : {indexed} fichiers indexés.")
+    session['indexation_success'] = True
     return redirect(url_for("index"))
 
 
@@ -394,11 +418,11 @@ def search_page():
     
     q = request.args.get("q", "").strip()
     if not q:
-        return render_template("search.html", q="", results=[], role=role)
+        return render_template("search.html", q="", results=[], role=role, page=1, total_pages=1, total_results=0)
 
     terms = [w for w in normalize_text(q) if w]
     if not terms:
-        return render_template("search.html", q=q, results=[], role=role)
+        return render_template("search.html", q=q, results=[], role=role, page=1, total_pages=1, total_results=0)
 
     from collections import defaultdict
     import math
@@ -418,7 +442,7 @@ def search_page():
     rows = cur.fetchall()
     if not rows:
         con.close()
-        return render_template("search.html", q=q, results=[])
+        return render_template("search.html", q=q, results=[], role=role, page=1, total_pages=1, total_results=0)
 
     #    On récupère tf par (doc, word) pour ces termes
     cur.execute(f"""
@@ -446,21 +470,63 @@ def search_page():
     for did, name, rel_path, occ in rows:
         root = get_index_root()
         full_path = (root / rel_path) if root else (DATA_DIR / rel_path)
-        raw = extract_text_from_file(full_path)
+        
+        # Gérer les erreurs lors de l'extraction du texte
+        try:
+            if full_path.exists() and full_path.is_file():
+                raw = extract_text_from_file(full_path)
+            else:
+                raw = ""
+        except Exception as e:
+            print(f"[WARN] Erreur extraction texte pour {full_path}: {e}")
+            raw = ""
+        
         snippet_text = build_snippet(raw, terms)
         snippet_html = highlight(snippet_text, terms)
         results.append({
             "id": int(did),
             "name": name,
             "rel_path": rel_path,
-            "occurrences": int(occ),       # si tu utilises l’agrég SQL donnée précédemment
+            "occurrences": int(occ),       # si tu utilises l'agrég SQL donnée précédemment
             "snippet": snippet_html         # ★ important
         })
 
     con.close()
     results.sort(key=lambda r: r["occurrences"], reverse=True)
-    print("DBG first snippet:", (results[0]["snippet"][:120] if results else "—"))
-    return render_template("search.html", q=q, results=results, role=role)
+    if results:
+        print("DBG first snippet:", results[0]["snippet"][:120] if results[0].get("snippet") else "—")
+    
+    # Pagination : 4 résultats par page
+    results_per_page = 4
+    page = int(request.args.get("page", 1))
+    total_results = len(results)
+    total_pages = (total_results + results_per_page - 1) // results_per_page if total_results > 0 else 1
+    
+    # Debug: afficher les valeurs de pagination
+    print(f"[DEBUG Pagination] total_results={total_results}, total_pages={total_pages}, page={page}")
+    
+    # Valider le numéro de page
+    if page < 1:
+        page = 1
+    elif page > total_pages and total_pages > 0:
+        page = total_pages
+    
+    # Calculer les indices pour la pagination
+    start_idx = (page - 1) * results_per_page
+    end_idx = start_idx + results_per_page
+    paginated_results = results[start_idx:end_idx]
+    
+    # Debug: vérifier les variables avant le rendu
+    print(f"[DEBUG Render] Rendering search.html with: total_results={total_results}, total_pages={total_pages}, page={page}")
+    print(f"[DEBUG Render] Variables type: total_results={type(total_results)}, total_pages={type(total_pages)}, page={type(page)}")
+    
+    return render_template("search.html", 
+                         q=q, 
+                         results=paginated_results, 
+                         role=role,
+                         page=page,
+                         total_pages=total_pages,
+                         total_results=total_results)
 
 
 
@@ -471,6 +537,8 @@ def get_suggestions():
     
     try:
         query = request.args.get("q", "").strip()
+        print(f"[DEBUG API] Requête suggestions reçue pour: '{query}'")
+        
         if not query or len(query) < 2:
             return jsonify({"suggestions": []})
         
@@ -512,13 +580,21 @@ def get_suggestions():
             return previous_row[-1]
         
         # Récupérer tous les mots du vocabulaire
-        con = db_conn()
-        cur = con.cursor()
-        cur.execute("SELECT DISTINCT word FROM frequencies ORDER BY word")
-        all_words = [row[0] for row in cur.fetchall()]
-        con.close()
+        try:
+            con = db_conn()
+            cur = con.cursor()
+            cur.execute("SELECT DISTINCT word FROM frequencies ORDER BY word")
+            all_words = [row[0] for row in cur.fetchall()]
+            con.close()
+        except Exception as db_error:
+            print(f"[ERROR] Erreur DB dans suggestions: {db_error}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({"suggestions": [], "error": "Erreur base de données"}), 200
         
+        print(f"[DEBUG] Vocabulaire: {len(all_words)} mots uniques")
         if not all_words:
+            print("[DEBUG] Aucun mot dans le vocabulaire!")
             return jsonify({"suggestions": []})
         
         # Calculer les distances et trier
@@ -547,42 +623,104 @@ def get_suggestions():
                 # Prendre la meilleure distance
                 distance = min(distances)
                 
-                # Distance maximale adaptative
-                max_distance = min(3, max(1, len(search_term_original) // 2))
+                # Distance maximale adaptative (plus permissive pour les mots courts)
+                query_len = len(search_term_original)
+                if query_len <= 3:
+                    max_distance = 3  # Plus permissif pour les mots courts
+                elif query_len <= 5:
+                    max_distance = 4
+                else:
+                    max_distance = min(5, max(3, query_len // 2 + 1))  # Plus permissif
                 
-                if distance <= max_distance:
+                # Accepter aussi les mots qui commencent par le terme même si la distance est un peu plus grande
+                starts_with_term = word_no_accents.startswith(search_term_no_accents)
+                extended_max = max_distance + 2 if starts_with_term else max_distance
+                
+                if distance <= extended_max:
                     bonus = 0
+                    score = distance
                     
                     # Bonus si le mot commence par la même lettre (sans accents)
                     if word_no_accents and search_term_no_accents and word_no_accents.startswith(search_term_no_accents[0]):
-                        bonus = -0.5
+                        bonus -= 0.5
                     
                     # Bonus si le terme est contenu dans le mot (sans accents)
                     if search_term_no_accents in word_no_accents:
-                        bonus = -1
+                        bonus -= 1.5
                     
                     # Bonus si le mot commence par le terme (préfixe, sans accents)
                     if word_no_accents.startswith(search_term_no_accents):
-                        bonus = -1.5
+                        bonus -= 2.5
                     
                     # Bonus supplémentaire si correspondance exacte sans accents
                     if word_no_accents == search_term_no_accents:
-                        bonus = -2
+                        bonus -= 5
                     
-                    suggestions_with_distance.append((word, distance + bonus))
+                    # Bonus pour les mots qui ont une longueur similaire
+                    len_diff = abs(len(word_no_accents) - len(search_term_no_accents))
+                    if len_diff <= 1:
+                        bonus -= 0.3
+                    elif len_diff <= 2:
+                        bonus -= 0.1
+                    
+                    # Calculer le score final
+                    final_score = distance + bonus
+                    suggestions_with_distance.append((word, final_score))
             except Exception as e:
                 # Ignorer les mots qui causent des erreurs
                 continue
         
-        # Trier par distance et prendre les 5 meilleurs
+        # Trier par score et prendre les 8 meilleurs (pour plus de choix)
         suggestions_with_distance.sort(key=lambda x: x[1])
-        suggestions = [word for word, _ in suggestions_with_distance[:5]]
+        suggestions = [word for word, _ in suggestions_with_distance[:8]]
+        
+        # Debug
+        print(f"[DEBUG Suggestions] Requête: '{query}', {len(all_words)} mots dans le vocabulaire")
+        print(f"[DEBUG Suggestions] {len(suggestions_with_distance)} candidats trouvés, {len(suggestions)} suggestions retenues")
+        
+        # Si aucune suggestion n'est trouvée, essayer de trouver des mots qui contiennent au moins une partie du terme
+        if not suggestions and len(search_term_original) >= 2:
+            partial_matches = []
+            min_substring_len = 2 if len(search_term_original) <= 4 else 3
+            for word in all_words[:1000]:  # Augmenter la limite pour plus de résultats
+                word_lower = word.lower()
+                word_no_acc = remove_accents(word_lower)
+                # Chercher si au moins 2-3 caractères consécutifs correspondent
+                for i in range(len(search_term_no_accents) - min_substring_len + 1):
+                    substring = search_term_no_accents[i:i+min_substring_len]
+                    if substring in word_no_acc:
+                        # Calculer un score basé sur la position et la longueur
+                        pos = word_no_acc.find(substring)
+                        score = len(substring) - pos * 0.1
+                        partial_matches.append((word, score))
+                        break
+            if partial_matches:
+                # Trier par score et prendre les meilleurs
+                partial_matches.sort(key=lambda x: x[1], reverse=True)
+                suggestions = [word for word, _ in partial_matches[:8]]
+        
+        # Si toujours aucune suggestion, essayer une recherche par première lettre
+        if not suggestions and len(search_term_original) >= 1:
+            first_letter = search_term_no_accents[0] if search_term_no_accents else ""
+            if first_letter:
+                letter_matches = []
+                for word in all_words[:500]:
+                    word_no_acc = remove_accents(word.lower())
+                    if word_no_acc.startswith(first_letter):
+                        letter_matches.append(word)
+                        if len(letter_matches) >= 5:
+                            break
+                if letter_matches:
+                    suggestions = letter_matches[:5]
         
         return jsonify({"suggestions": suggestions})
     
     except Exception as e:
-        # En cas d'erreur, retourner une liste vide
-        return jsonify({"suggestions": [], "error": str(e)})
+        # En cas d'erreur, retourner une liste vide avec code 200 pour éviter NetworkError
+        print(f"[ERROR Suggestions] Erreur: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"suggestions": [], "error": str(e)}), 200
 
 @app.route("/open/<int:doc_id>")
 def open_doc(doc_id: int):
@@ -618,83 +756,95 @@ def open_doc(doc_id: int):
 @app.route("/stats", methods=["GET"])
 def stats():
     session["user_role"] = "admin"
-    con = db_conn()
-    cur = con.cursor()
+    try:
+        con = db_conn()
+        cur = con.cursor()
 
-    # KPIs de base
-    cur.execute("SELECT COUNT(*) FROM documents")
-    total_docs = cur.fetchone()[0] or 0
+        # KPIs de base
+        cur.execute("SELECT COUNT(*) FROM documents")
+        total_docs = cur.fetchone()[0] or 0
 
-    cur.execute("SELECT COALESCE(SUM(freq),0) FROM frequencies")
-    total_tokens_after = cur.fetchone()[0] or 0  # Mots après traitement
+        cur.execute("SELECT COALESCE(SUM(freq),0) FROM frequencies")
+        total_tokens_after = cur.fetchone()[0] or 0  # Mots après traitement
 
-    cur.execute("SELECT COUNT(DISTINCT word) FROM frequencies")
-    vocab_size = cur.fetchone()[0] or 0
+        cur.execute("SELECT COUNT(DISTINCT word) FROM frequencies")
+        vocab_size = cur.fetchone()[0] or 0
 
-    # Taille totale des fichiers (en caractères, puis convertir en KB/MB)
-    cur.execute("SELECT COALESCE(SUM(length),0) FROM documents")
-    total_size_chars = cur.fetchone()[0] or 0
-    total_size_kb = total_size_chars / 1024
-    total_size_mb = total_size_kb / 1024
+        # Taille totale des fichiers (en caractères, puis convertir en KB/MB)
+        cur.execute("SELECT COALESCE(SUM(length),0) FROM documents")
+        total_size_chars = cur.fetchone()[0] or 0
+        total_size_kb = total_size_chars / 1024 if total_size_chars > 0 else 0
+        total_size_mb = total_size_kb / 1024 if total_size_kb > 0 else 0
 
-    # Calculer les mots avant traitement (tous les tokens extraits avant filtrage)
-    # Estimation basée sur la taille des fichiers et le ratio moyen
-    # Ratio moyen observé : environ 1.5-2x plus de mots bruts que de tokens après traitement
-    # On peut aussi relire les fichiers si nécessaire, mais c'est coûteux
-    root = get_index_root()
-    total_words_before = 0
-    
-    # Option 1: Estimation rapide (recommandé pour de gros corpus)
-    if total_tokens_after > 0:
-        # Estimation basée sur le ratio moyen observé
-        total_words_before = int(total_tokens_after * 1.8)  # ~80% de réduction après filtrage
-    else:
+        # Calculer les mots avant traitement (tous les tokens extraits avant filtrage)
+        # Estimation basée sur la taille des fichiers et le ratio moyen
+        # Ratio moyen observé : environ 1.5-2x plus de mots bruts que de tokens après traitement
         total_words_before = 0
-    
+        if total_tokens_after > 0:
+            # Estimation basée sur le ratio moyen observé
+            total_words_before = int(total_tokens_after * 1.8)  # ~80% de réduction après filtrage
 
-    # Top 20 mots pour les graphiques (plus de données)
-    cur.execute("""
-        SELECT word, SUM(freq) AS f
-        FROM frequencies
-        GROUP BY word
-        ORDER BY f DESC
-        LIMIT 20
-    """)
-    top_words = cur.fetchall()  # [(word, f), ...]
+        # Top 20 mots pour les graphiques (plus de données)
+        cur.execute("""
+            SELECT word, SUM(freq) AS f
+            FROM frequencies
+            GROUP BY word
+            ORDER BY f DESC
+            LIMIT 20
+        """)
+        top_words = cur.fetchall() or []  # [(word, f), ...]
 
-    # Top 10 mots pour l'affichage liste
-    top_10_words = top_words[:10]
+        # Top 10 mots pour l'affichage liste
+        top_10_words = top_words[:10] if top_words else []
 
-    # Top 10 documents avec taille de fichier
-    cur.execute("""
-        SELECT d.id, d.name, d.rel_path, d.length, SUM(f.freq) AS tokens
-        FROM documents d
-        JOIN frequencies f ON f.doc_id = d.id
-        GROUP BY d.id, d.name, d.rel_path, d.length
-        ORDER BY tokens DESC
-        LIMIT 10
-    """)
-    top_docs = cur.fetchall()  # [(id, name, rel_path, length, tokens), ...]
+        # Top 10 documents avec taille de fichier
+        cur.execute("""
+            SELECT d.id, d.name, d.rel_path, d.length, SUM(f.freq) AS tokens
+            FROM documents d
+            JOIN frequencies f ON f.doc_id = d.id
+            GROUP BY d.id, d.name, d.rel_path, d.length
+            ORDER BY tokens DESC
+            LIMIT 10
+        """)
+        top_docs = cur.fetchall() or []  # [(id, name, rel_path, length, tokens), ...]
 
-    con.close()
-    
-    # Préparer les données pour les graphiques
-    chart_words = [w[0] for w in top_words]
-    chart_freqs = [w[1] for w in top_words]
+        con.close()
+        
+        # Préparer les données pour les graphiques
+        chart_words = [w[0] for w in top_words] if top_words else []
+        chart_freqs = [w[1] for w in top_words] if top_words else []
 
-    return render_template("stats.html",
-                           total_docs=total_docs,
-                           total_tokens_after=total_tokens_after,
-                           total_words_before=total_words_before,
-                           vocab_size=vocab_size,
-                           total_size_chars=total_size_chars,
-                           total_size_kb=total_size_kb,
-                           total_size_mb=total_size_mb,
-                           top_words=top_10_words,
-                           top_docs=top_docs,
-                           chart_words=chart_words,
-                           chart_freqs=chart_freqs,
-                           role="admin")
+        return render_template("stats.html",
+                               total_docs=total_docs,
+                               total_tokens_after=total_tokens_after,
+                               total_words_before=total_words_before,
+                               vocab_size=vocab_size,
+                               total_size_chars=total_size_chars,
+                               total_size_kb=total_size_kb,
+                               total_size_mb=total_size_mb,
+                               top_words=top_10_words,
+                               top_docs=top_docs,
+                               chart_words=chart_words,
+                               chart_freqs=chart_freqs,
+                               role="admin")
+    except Exception as e:
+        print(f"[ERROR] Erreur dans stats: {e}")
+        import traceback
+        traceback.print_exc()
+        # Retourner des valeurs par défaut en cas d'erreur
+        return render_template("stats.html",
+                               total_docs=0,
+                               total_tokens_after=0,
+                               total_words_before=0,
+                               vocab_size=0,
+                               total_size_chars=0,
+                               total_size_kb=0,
+                               total_size_mb=0,
+                               top_words=[],
+                               top_docs=[],
+                               chart_words=[],
+                               chart_freqs=[],
+                               role="admin")
 
 
 if __name__ == "__main__":

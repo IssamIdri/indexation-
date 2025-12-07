@@ -32,11 +32,13 @@
         {% endif %}
     </header>
 
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <div class="toast">{% for m in messages %}<div>{{ m }}</div>{% endfor %}</div>
-      {% endif %}
-    {% endwith %}
+    {% if hide_flash is not defined or not hide_flash %}
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="toast">{% for m in messages %}<div>{{ m }}</div>{% endfor %}</div>
+        {% endif %}
+      {% endwith %}
+    {% endif %}
 
     <main>
       {% block content %}{% endblock %}

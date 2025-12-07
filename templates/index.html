@@ -1,10 +1,41 @@
 {% extends "base.html" %}
+{% set hide_flash = true %}
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
+
+{% if indexation_success %}
+  <div class="indexation-success-message" style="display: block !important; visibility: visible !important; opacity: 1 !important;">
+    <div class="success-alert" style="display: flex !important; visibility: visible !important; opacity: 1 !important;">
+      <span class="success-icon">✓</span>
+      <span class="success-text">Indexation terminée</span>
+    </div>
+  </div>
+{% endif %}
 
 <div class="card">
   <h3>Indexer un dossier ou fichier local</h3>
   <form action="{{ url_for('index_path') }}" method="post" id="index-form" class="index-form" enctype="multipart/form-data">
+    <div class="file-type-selector">
+      <label style="display: block; margin-bottom: 10px; font-weight: 600; color: #333;">Types de fichiers à indexer :</label>
+      <div class="file-type-checkboxes" style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" name="file_types" value=".txt" checked class="file-type-checkbox">
+          <span>.txt</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" name="file_types" value=".docx" checked class="file-type-checkbox">
+          <span>.docx</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" name="file_types" value=".html" checked class="file-type-checkbox">
+          <span>.html / .htm</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" name="file_types" value=".pdf" checked class="file-type-checkbox">
+          <span>.pdf</span>
+        </label>
+      </div>
+    </div>
     <div class="file-selector-section">
       <div class="file-input-wrapper">
         <input type="file" id="folder-picker" webkitdirectory directory multiple style="display: none;">
@@ -36,7 +67,7 @@
       </form>
     </details>
   </div>
-  <span class="muted small">Formats pris : .txt, .html, .docx, .pdf (parcours récursif pour les dossiers).</span>
+  <span class="muted small">Sélectionnez les types de fichiers à indexer ci-dessus. Formats disponibles : .txt, .html, .docx, .pdf (parcours récursif pour les dossiers).</span>
 </div>
 
 {% if summaries %}
@@ -72,9 +103,41 @@ document.addEventListener('DOMContentLoaded', function() {
   const selectedPathDiv = document.getElementById('selected-path');
   const btnIndex = document.getElementById('btn-index');
   const form = document.getElementById('index-form');
+  const fileTypeCheckboxes = document.querySelectorAll('.file-type-checkbox');
   
   let selectedFiles = null;
   let isFolderSelection = false;
+
+  // Fonction pour obtenir les types de fichiers sélectionnés
+  function getSelectedFileTypes() {
+    const selectedTypes = [];
+    fileTypeCheckboxes.forEach(checkbox => {
+      if (checkbox.checked) {
+        selectedTypes.push(checkbox.value);
+      }
+    });
+    // Ajouter .htm si .html est sélectionné
+    if (selectedTypes.includes('.html')) {
+      selectedTypes.push('.htm');
+    }
+    return selectedTypes;
+  }
+
+  // Réinitialiser l'affichage si les types changent
+  fileTypeCheckboxes.forEach(checkbox => {
+    checkbox.addEventListener('change', function() {
+      const selectedTypes = getSelectedFileTypes();
+      if (selectedTypes.length === 0) {
+        alert('Veuillez sélectionner au moins un type de fichier.');
+        checkbox.checked = true; // Réactiver la case
+        return;
+      }
+      // Mettre à jour l'affichage si des fichiers sont déjà sélectionnés
+      if (selectedFiles) {
+        updateFileList(selectedFiles, isFolderSelection);
+      }
+    });
+  });
 
   // Réinitialiser les autres inputs quand on en sélectionne un
   folderPicker.addEventListener('change', function() {
@@ -112,8 +175,20 @@ document.addEventListener('DOMContentLoaded', function() {
     // Créer un FormData avec les fichiers
     const formData = new FormData();
     
-    // Ajouter tous les fichiers valides et leurs chemins relatifs
-    const validExtensions = ['.txt', '.html', '.htm', '.docx', '.pdf'];
+    // Obtenir les types de fichiers sélectionnés
+    const selectedTypes = getSelectedFileTypes();
+    if (selectedTypes.length === 0) {
+      e.preventDefault();
+      alert('Veuillez sélectionner au moins un type de fichier.');
+      return;
+    }
+    
+    // Ajouter les types sélectionnés au FormData
+    selectedTypes.forEach(type => {
+      formData.append('file_types', type);
+    });
+    
+    // Ajouter tous les fichiers valides selon les types sélectionnés
     let hasValidFiles = false;
     const filePaths = {};
 
@@ -122,7 +197,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const file = selectedFiles[i];
       const ext = '.' + file.name.split('.').pop().toLowerCase();
       
-      if (validExtensions.includes(ext)) {
+      if (selectedTypes.includes(ext)) {
         // Ajouter le fichier (l'ordre sera préservé)
         formData.append('files', file);
         
@@ -140,7 +215,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (!hasValidFiles) {
       e.preventDefault();
-      alert('Aucun fichier valide sélectionné. Formats acceptés: .txt, .html, .docx, .pdf');
+      const typesList = selectedTypes.join(', ');
+      alert(`Aucun fichier valide sélectionné parmi les types choisis (${typesList}).`);
       return;
     }
 
@@ -183,15 +259,18 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
-    // Compter les fichiers valides
-    const validExtensions = ['.txt', '.html', '.htm', '.docx', '.pdf'];
+    // Obtenir les types de fichiers sélectionnés
+    const selectedTypes = getSelectedFileTypes();
+    
+    // Compter les fichiers valides selon les types sélectionnés
     let validCount = 0;
+    let totalCount = files.length;
     let folderName = '';
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const ext = '.' + file.name.split('.').pop().toLowerCase();
-      if (validExtensions.includes(ext)) {
+      if (selectedTypes.includes(ext)) {
         validCount++;
         if (isFolder && !folderName) {
           // Extraire le nom du dossier depuis webkitRelativePath
@@ -202,29 +281,36 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     if (validCount === 0) {
-      selectedPathDiv.innerHTML = '<div style="color: #d32f2f; padding: 10px;">Aucun fichier valide sélectionné. Formats acceptés: .txt, .html, .docx, .pdf</div>';
+      const typesList = selectedTypes.length > 0 ? selectedTypes.join(', ') : 'aucun type sélectionné';
+      selectedPathDiv.innerHTML = `<div style="color: #d32f2f; padding: 10px;">Aucun fichier valide sélectionné parmi les types choisis (${typesList}).</div>`;
       selectedPathDiv.style.display = 'block';
       btnIndex.disabled = true;
       return;
     }
 
     // Afficher les informations
+    const selectedTypesList = selectedTypes.join(', ');
     let infoHtml = '';
     if (isFolder) {
       infoHtml = `
         <div style="margin: 10px 0; padding: 12px; background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 4px;">
           <strong>📁 Dossier sélectionné:</strong> ${folderName}<br>
-          <strong>Fichiers valides:</strong> ${validCount} sur ${files.length} fichiers trouvés<br>
+          <strong>Fichiers valides:</strong> ${validCount} sur ${totalCount} fichiers trouvés<br>
+          <strong>Types sélectionnés:</strong> ${selectedTypesList}<br>
           <small style="color: #666;">Prêt à indexer. Cliquez sur "Indexer" pour commencer.</small>
         </div>
       `;
     } else {
-      const fileNames = Array.from(files).slice(0, 3).map(f => f.name).join(', ');
-      const moreFiles = files.length > 3 ? ` et ${files.length - 3} autre(s)` : '';
+      const validFiles = Array.from(files).filter(f => {
+        const ext = '.' + f.name.split('.').pop().toLowerCase();
+        return selectedTypes.includes(ext);
+      });
+      const fileNames = validFiles.slice(0, 3).map(f => f.name).join(', ');
+      const moreFiles = validFiles.length > 3 ? ` et ${validFiles.length - 3} autre(s)` : '';
       infoHtml = `
         <div style="margin: 10px 0; padding: 12px; background: #e8f5e9; border-left: 4px solid #4caf50; border-radius: 4px;">
           <strong>📄 Fichiers sélectionnés:</strong> ${fileNames}${moreFiles}<br>
-          <strong>Total:</strong> ${validCount} fichier(s) valide(s)<br>
+          <strong>Total:</strong> ${validCount} fichier(s) valide(s) (types: ${selectedTypesList})<br>
           <small style="color: #666;">Prêt à indexer. Cliquez sur "Indexer" pour commencer.</small>
         </div>
       `;
