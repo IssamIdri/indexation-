@@ -54,11 +54,8 @@
 </ul>
 
   <!-- Pagination -->
-  <!-- TEST: total_pages={{ total_pages|default('NON_DEFINI') }}, total_results={{ total_results|default('NON_DEFINI') }} -->
   <!-- FORCER AFFICHAGE TEMPORAIRE -->
-  <div class="pagination" style="display: flex !important; background: yellow !important; padding: 20px !important; margin: 20px 0 !important;">
-    <div style="color: black; font-weight: bold;">TEST PAGINATION - total_pages={{ total_pages|default('NON_DEFINI') }}, total_results={{ total_results|default('NON_DEFINI') }}</div>
-  </div>
+  
   {% if total_pages and total_pages > 1 %}
   <div class="pagination">
     <div class="pagination-info">
