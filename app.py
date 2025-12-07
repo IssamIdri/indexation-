@@ -420,37 +420,131 @@ def search_page():
     if not q:
         return render_template("search.html", q="", results=[], role=role, page=1, total_pages=1, total_results=0)
 
-    terms = [w for w in normalize_text(q) if w]
-    if not terms:
-        return render_template("search.html", q=q, results=[], role=role, page=1, total_pages=1, total_results=0)
-
     from collections import defaultdict
     import math
 
+    # Détecter le mode AND : si " AND " (en majuscules, avec espaces) est présent
+    use_and_mode = " AND " in q.upper()
+    
+    if use_and_mode:
+        # Mode AND : séparer en groupes de termes
+        # Exemple: "utilisateur AND système" -> ["utilisateur", "système"]
+        # Exemple: "utilisateur AND système AND base" -> ["utilisateur", "système", "base"]
+        query_parts = q.split(" AND ")
+        term_groups = []
+        all_terms = []
+        for part in query_parts:
+            normalized = [w for w in normalize_text(part.strip()) if w]
+            if normalized:
+                term_groups.append(normalized)
+                all_terms.extend(normalized)
+        
+        if not term_groups:
+            return render_template("search.html", q=q, results=[], role=role, page=1, total_pages=1, total_results=0)
+        
+        terms = all_terms
+        print(f"[DEBUG AND] Mode AND activé avec {len(term_groups)} groupes: {term_groups}")
+    else:
+        # Mode OR (par défaut) : tous les termes dans un seul groupe
+        terms = [w for w in normalize_text(q) if w]
+        term_groups = [terms] if terms else []
+        if not terms:
+            return render_template("search.html", q=q, results=[], role=role, page=1, total_pages=1, total_results=0)
+
     con = db_conn(); cur = con.cursor()
 
-    # 1) Occurrences (TF brut) par doc sur tous les termes
-    placeholders = ",".join(["?"] * len(terms))
-    cur.execute(f"""
-        SELECT d.id, d.name, d.rel_path, SUM(f.freq) AS occ
-        FROM documents d
-        JOIN frequencies f ON d.id = f.doc_id
-        WHERE f.word IN ({placeholders})
-        GROUP BY d.id, d.name, d.rel_path
-        ORDER BY occ DESC
-    """, terms)
-    rows = cur.fetchall()
-    if not rows:
-        con.close()
-        return render_template("search.html", q=q, results=[], role=role, page=1, total_pages=1, total_results=0)
+    if use_and_mode:
+        # Mode AND : requête SQL qui vérifie que chaque groupe a au moins un terme présent
+        # On doit trouver les documents qui contiennent au moins un terme de chaque groupe
+        
+        # Construire la requête avec GROUP BY et HAVING pour vérifier tous les groupes
+        # Pour chaque groupe, on crée une condition qui vérifie qu'au moins un terme du groupe est présent
+        
+        # Récupérer tous les documents qui contiennent au moins un terme
+        placeholders = ",".join(["?"] * len(terms))
+        cur.execute(f"""
+            SELECT DISTINCT d.id, d.name, d.rel_path
+            FROM documents d
+            JOIN frequencies f ON d.id = f.doc_id
+            WHERE f.word IN ({placeholders})
+        """, terms)
+        candidate_docs = cur.fetchall()
+        
+        if not candidate_docs:
+            con.close()
+            return render_template("search.html", q=q, results=[], role=role, page=1, total_pages=1, total_results=0)
+        
+        # Pour chaque document candidat, vérifier qu'il contient au moins un terme de chaque groupe
+        valid_doc_ids = []
+        for doc_id, name, rel_path in candidate_docs:
+            # Vérifier que ce document contient au moins un terme de chaque groupe
+            all_groups_present = True
+            for group in term_groups:
+                group_placeholders = ",".join(["?"] * len(group))
+                cur.execute(f"""
+                    SELECT COUNT(*) FROM frequencies
+                    WHERE doc_id = ? AND word IN ({group_placeholders})
+                """, [doc_id] + group)
+                count = cur.fetchone()[0]
+                if count == 0:
+                    all_groups_present = False
+                    break
+            
+            if all_groups_present:
+                valid_doc_ids.append(doc_id)
+        
+        if not valid_doc_ids:
+            con.close()
+            return render_template("search.html", q=q, results=[], role=role, page=1, total_pages=1, total_results=0)
+        
+        # Récupérer les occurrences pour les documents valides
+        doc_placeholders = ",".join(["?"] * len(valid_doc_ids))
+        term_placeholders = ",".join(["?"] * len(terms))
+        cur.execute(f"""
+            SELECT d.id, d.name, d.rel_path, SUM(f.freq) AS occ
+            FROM documents d
+            JOIN frequencies f ON d.id = f.doc_id
+            WHERE d.id IN ({doc_placeholders}) AND f.word IN ({term_placeholders})
+            GROUP BY d.id, d.name, d.rel_path
+            ORDER BY occ DESC
+        """, valid_doc_ids + terms)
+        rows = cur.fetchall()
+        
+        # Récupérer tf par (doc, word) pour ces termes et documents
+        cur.execute(f"""
+            SELECT doc_id, word, freq
+            FROM frequencies
+            WHERE doc_id IN ({doc_placeholders}) AND word IN ({term_placeholders})
+        """, valid_doc_ids + terms)
+        tf_rows = cur.fetchall()
+        
+        if not rows:
+            con.close()
+            return render_template("search.html", q=q, results=[], role=role, page=1, total_pages=1, total_results=0)
+    else:
+        # Mode OR (par défaut) : comportement actuel
+        # 1) Occurrences (TF brut) par doc sur tous les termes
+        placeholders = ",".join(["?"] * len(terms))
+        cur.execute(f"""
+            SELECT d.id, d.name, d.rel_path, SUM(f.freq) AS occ
+            FROM documents d
+            JOIN frequencies f ON d.id = f.doc_id
+            WHERE f.word IN ({placeholders})
+            GROUP BY d.id, d.name, d.rel_path
+            ORDER BY occ DESC
+        """, terms)
+        rows = cur.fetchall()
+        if not rows:
+            con.close()
+            return render_template("search.html", q=q, results=[], role=role, page=1, total_pages=1, total_results=0)
 
-    #    On récupère tf par (doc, word) pour ces termes
-    cur.execute(f"""
-        SELECT doc_id, word, freq
-        FROM frequencies
-        WHERE word IN ({placeholders})
-    """, terms)
-    tf_rows = cur.fetchall()
+        #    On récupère tf par (doc, word) pour ces termes
+        cur.execute(f"""
+            SELECT doc_id, word, freq
+            FROM frequencies
+            WHERE word IN ({placeholders})
+        """, terms)
+        tf_rows = cur.fetchall()
 
     cur.execute("SELECT COUNT(*) FROM documents")
     N = cur.fetchone()[0] or 1
